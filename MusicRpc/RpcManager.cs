@@ -2,19 +2,29 @@
 using System.Diagnostics;
 using System.Threading.Tasks;
 using DiscordRPC;
-using Kxnrl.Vanessa.Models;
-using Kxnrl.Vanessa.Players;
-using Kxnrl.Vanessa.Utils;
+using MusicRpc.Models;
+using MusicRpc.Players;
+using MusicRpc.Players.Interfaces;
+using MusicRpc.Utils;
 
-namespace Kxnrl.Vanessa;
+namespace MusicRpc;
 
 /// <summary>
-/// 封装所有Discord RPC更新的核心逻辑
+/// RPC管理器，封装了所有与Discord RPC更新相关的核心逻辑。
+/// 它负责在一个无限循环中轮询各个音乐播放器的状态，检测变化，并推送更新到Discord。
 /// </summary>
+/// <param name="netEaseClient">用于网易云音乐的Discord RPC客户端实例。</param>
+/// <param name="tencentClient">用于QQ音乐的Discord RPC客户端实例。</param>
 internal class RpcManager(DiscordRpcClient netEaseClient, DiscordRpcClient tencentClient)
 {
+    /// <summary>
+    /// 维护单个播放器的运行时状态。
+    /// </summary>
     private class PlayerState
     {
+        /// <summary>
+        /// 当前活跃的播放器实例（如果检测到进程）。
+        /// </summary>
         public IMusicPlayer? Player { get; set; }
 
         // 状态检测
@@ -29,11 +39,20 @@ internal class RpcManager(DiscordRpcClient netEaseClient, DiscordRpcClient tence
     private readonly PlayerState _netEaseState = new();
     private readonly PlayerState _tencentState = new();
 
+    // 接收来自UI的刷新请求，标志位
+    private volatile bool _stateRefreshRequested;
+
     // 如果实际进度变化与时间流逝的差异超过0.4秒，则认为跳转了歌曲进度
     private const double JumpToleranceSeconds = 0.4;
 
     // 防抖处理，只有在状态稳定超过1.5秒后，才发送RPC更新
     private const double DebounceWindowSeconds = 1.5;
+
+    /// <summary>
+    /// 允许外部（如UI线程）请求立即刷新所有活跃播放器的 RPC 状态。
+    /// 通常在用户更改了显示设置后调用。
+    /// </summary>
+    public void RequestStateRefresh() => _stateRefreshRequested = true;
 
     /// <summary>
     /// 启动无限循环的更新线程
@@ -49,6 +68,23 @@ internal class RpcManager(DiscordRpcClient netEaseClient, DiscordRpcClient tence
                     pid => new NetEase(pid), currentTime);
                 PollPlayer(_tencentState, "QQMusic_Daemon_Wnd", "Tencent QQMusic", tencentClient,
                     pid => new Tencent(pid), currentTime);
+
+                // 检查是否有强制刷新请求
+                if (_stateRefreshRequested)
+                {
+                    _stateRefreshRequested = false;
+                    Debug.Write("Settings changed. Forcing immediate RPC update for active players.");
+
+                    if (_netEaseState.Player is not null)
+                    {
+                        UpdateOrClearPresence(netEaseClient, _netEaseState.LastPolledInfo, "NetEase CloudMusic");
+                    }
+
+                    if (_tencentState.Player is not null)
+                    {
+                        UpdateOrClearPresence(tencentClient, _tencentState.LastPolledInfo, "Tencent QQMusic");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -157,14 +193,22 @@ internal class RpcManager(DiscordRpcClient netEaseClient, DiscordRpcClient tence
             return;
         }
 
+        var config = Configurations.Instance;
+
+        var titleIcon = config.Settings.ShowTitleIcon ? (playerInfo.Pause ? "⏸️ " : "▶️ ") : "";
+        var artistIcon = config.Settings.ShowArtistIcon ? "🎤 " : "";
+        var albumIcon = config.Settings.ShowAlbumIcon ? "💿 " : "";
+
         var presence = new RichPresence
         {
-            State = StringUtils.GetTruncatedStringByMaxByteLength($"🎤 {playerInfo.Artists}", 128),
+            Details = StringUtils.GetTruncatedStringByMaxByteLength($"{titleIcon}{playerInfo.Title}", 128),
+            State = StringUtils.GetTruncatedStringByMaxByteLength($"{artistIcon}{playerInfo.Artists}", 128),
+            StatusDisplay = config.Settings.UseDetailsForStatus ? StatusDisplayType.Details : StatusDisplayType.Name,
             Type = ActivityType.Listening,
             Assets = new Assets
             {
                 LargeImageKey = playerInfo.Cover,
-                LargeImageText = StringUtils.GetTruncatedStringByMaxByteLength($"💿 {playerInfo.Album}", 128),
+                LargeImageText = StringUtils.GetTruncatedStringByMaxByteLength($"{albumIcon}{playerInfo.Album}", 128),
                 SmallImageKey = "timg",
                 SmallImageText = playerName,
             },
@@ -179,20 +223,15 @@ internal class RpcManager(DiscordRpcClient netEaseClient, DiscordRpcClient tence
             ]
         };
 
-        // 根据播放状态决定是否设置时间戳和修改状态文本
+        // 根据播放状态决定是否设置时间戳
+        // 暂停时切换为暂停状态图标，但由于限制时间进度依旧会自动增长
         if (!playerInfo.Pause)
         {
-            presence.Details = StringUtils.GetTruncatedStringByMaxByteLength($"▶️ {playerInfo.Title}", 128);
             presence.Timestamps = new Timestamps(
                 DateTime.UtcNow.Subtract(TimeSpan.FromSeconds(playerInfo.Schedule)),
                 DateTime.UtcNow.Subtract(TimeSpan.FromSeconds(playerInfo.Schedule))
                     .Add(TimeSpan.FromSeconds(playerInfo.Duration))
             );
-        }
-        else
-        {
-            // 暂停时切换为暂停状态图标，但由于限制时间进度依旧会自动增长
-            presence.Details = StringUtils.GetTruncatedStringByMaxByteLength($"⏸️ {playerInfo.Title}", 128);
         }
 
         rpcClient.SetPresence(presence);

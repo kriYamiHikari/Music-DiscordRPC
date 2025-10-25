@@ -1,11 +1,15 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Text;
-using Kxnrl.Vanessa.Models;
-using Kxnrl.Vanessa.Win32Api;
+using MusicRpc.Models;
+using MusicRpc.Players.Interfaces;
+using MusicRpc.Win32Api;
 
-namespace Kxnrl.Vanessa.Players;
+namespace MusicRpc.Players;
 
+/// <summary>
+/// QQ音乐播放器的具体实现
+/// 与网易云不同，QQ音乐的实现完全依赖于读取进程内存
+/// </summary>
 internal sealed class Tencent : IMusicPlayer
 {
     /*
@@ -36,35 +40,36 @@ internal sealed class Tencent : IMusicPlayer
 
     private const int StdStringSize = 0x18;
 
-    private readonly nint          _currentSongInfoAddress;
+    private readonly nint _currentSongInfoAddress;
 
-    private readonly int           _pid;
+    private readonly int _pid;
     private readonly ProcessMemory _process;
 
     public Tencent(int pid)
     {
         _pid = pid;
-        
+
         var moduleBaseAddress = Utils.ProcessUtils.GetModuleBaseAddress(pid, "QQMusic.dll");
-        
+
         if (moduleBaseAddress == IntPtr.Zero)
         {
-            throw new DllNotFoundException("Could not find QQMusic.dll in the target process. It might not be fully loaded yet.");
+            throw new DllNotFoundException(
+                "Could not find QQMusic.dll in the target process. It might not be fully loaded yet.");
         }
-        
+
         _process = new ProcessMemory(pid);
-        
+
         if (Memory.FindPattern(CurrentSongInfoPattern, pid, moduleBaseAddress, out var patternAddress))
         {
             var songInfoPointer = _process.ReadInt32(patternAddress, 1);
             _currentSongInfoAddress = songInfoPointer;
         }
-        
+
         if (_currentSongInfoAddress == 0)
         {
-            throw new EntryPointNotFoundException("_currentSongInfoAddress is 0. Pattern might be outdated or process state is invalid.");
+            throw new EntryPointNotFoundException(
+                "_currentSongInfoAddress is 0. Pattern might be outdated or process state is invalid.");
         }
-
     }
 
     public bool Validate(int pid)
@@ -78,7 +83,7 @@ internal sealed class Tencent : IMusicPlayer
         {
             return null;
         }
-        
+
         // 停止也视为暂停播放
         var playStatus = GetPlayStatus();
         var isPaused = playStatus is 0 or 2;
@@ -86,13 +91,13 @@ internal sealed class Tencent : IMusicPlayer
         return new PlayerInfo
         {
             Identity = id.ToString(),
-            Title    = GetSongName(),
-            Artists  = GetArtistName(),
-            Album    = GetAlbumName(),
-            Cover    = GetAlbumThumbnailUrl(),
+            Title = GetSongName(),
+            Artists = GetArtistName(),
+            Album = GetAlbumName(),
+            Cover = GetAlbumThumbnailUrl(),
             Schedule = GetSongSchedule() * 0.001,
             Duration = GetSongDuration() * 0.001,
-            Pause    = isPaused,
+            Pause = isPaused,
             Url = $"https://y.qq.com/n/ryqq/songDetail/{id}",
         };
     }
@@ -129,6 +134,7 @@ internal sealed class Tencent : IMusicPlayer
 
         byte[] strBuffer;
 
+        // 小字符串优化
         if (strLength <= 15)
         {
             strBuffer = _process.ReadBytes(address, strLength);
@@ -141,7 +147,7 @@ internal sealed class Tencent : IMusicPlayer
 
         return Encoding.UTF8.GetString(strBuffer);
     }
-    
+
     /// <summary>
     /// 获取播放状态的原始值
     /// 0: 暂停, 1: 播放, 2: 停止, 3: 缓冲

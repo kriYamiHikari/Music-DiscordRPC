@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Text;
 
-namespace Kxnrl.Vanessa.Utils;
+namespace MusicRpc.Utils;
 
 public static class StringUtils
 {
@@ -71,23 +71,23 @@ public static class StringUtils
         var truncatedLength = maxLength - 3;
         var truncatedBuffer = new byte[truncatedLength];
         Buffer.BlockCopy(strBuffer, 0, truncatedBuffer, 0, truncatedLength);
-        
+
         // 找到最后一个完整的字符的索引
         var lastCompleteCharIndex = FindLastCompleteCharIndex(truncatedBuffer, truncatedLength);
         if (lastCompleteCharIndex == -1) return "Error";
-        
+
         // 创建截断后的字节数组
         var truncatedString = new byte[lastCompleteCharIndex];
         Buffer.BlockCopy(truncatedBuffer, 0, truncatedString, 0, lastCompleteCharIndex);
-        
+
         // 将省略号转换为字节数组
         var ellipsisByteString = "..."u8.ToArray();
-        
+
         // 创建最终的字节数组，包含截断后的字符串和省略号
         var finalBuffer = new byte[truncatedString.Length + ellipsisByteString.Length];
         Buffer.BlockCopy(truncatedString, 0, finalBuffer, 0, truncatedString.Length);
         Buffer.BlockCopy(ellipsisByteString, 0, finalBuffer, truncatedString.Length, ellipsisByteString.Length);
-        
+
         // 将最终的字节数组转换为字符串
         return Encoding.UTF8.GetString(finalBuffer);
     }
