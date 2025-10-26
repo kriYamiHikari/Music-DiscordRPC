@@ -217,7 +217,7 @@ internal class RpcManager(DiscordRpcClient netEaseClient, DiscordRpcClient tence
                 new Button { Label = "🎧 Listen", Url = playerInfo.Url },
                 new Button
                 {
-                    Label = "🆕 View App on GitHub (fork)",
+                    Label = "🔍 View App on GitHub",
                     Url = "https://github.com/kriYamiHikari/Music-DiscordRPC"
                 },
             ]
