@@ -10,7 +10,7 @@
     <RootNamespace>MusicRpc</RootNamespace>
     <VersionPrefix>1.0</VersionPrefix>
     <VersionSuffix>1</VersionSuffix>
-    <Version>3.0.2</Version>
+    <Version>3.0.3</Version>
     <PackageProjectUrl>https://github.com/kriYamiHikari/Music-DiscordRPC</PackageProjectUrl>
     <Copyright>©2024 Kyle, ©2025 kri_YamiHikari</Copyright>
     <RepositoryUrl>https://github.com/kriYamiHikari/Music-DiscordRPC</RepositoryUrl>

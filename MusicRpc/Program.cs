@@ -15,6 +15,7 @@ internal static class Program
     // https://discord.com/developers/applications
     private const string NetEaseAppId = "1431734033515286610";
     private const string TencentAppId = "1431607752945434655";
+    private const string LxMusicAppId = "1435103861089243248";
 
     private static RpcManager? _rpcManager;
 
@@ -38,10 +39,12 @@ internal static class Program
         // 为每个播放器初始化一个独立的 Discord RPC 客户端
         var netEaseClient = new DiscordRpcClient(NetEaseAppId);
         var tencentClient = new DiscordRpcClient(TencentAppId);
+        var lxMusicClient = new DiscordRpcClient(LxMusicAppId);
         netEaseClient.Initialize();
         tencentClient.Initialize();
+        lxMusicClient.Initialize();
 
-        if (!netEaseClient.IsInitialized || !tencentClient.IsInitialized)
+        if (!netEaseClient.IsInitialized || !tencentClient.IsInitialized || !lxMusicClient.IsInitialized)
         {
             MessageBox.Show("Failed to initialize Discord RPC client.", "Error", MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
@@ -49,7 +52,7 @@ internal static class Program
         }
 
         // 核心服务
-        _rpcManager = new RpcManager(netEaseClient, tencentClient);
+        _rpcManager = new RpcManager(netEaseClient, tencentClient, lxMusicClient);
         Task.Run(_rpcManager.Start);
 
         // 托盘图标
@@ -60,6 +63,7 @@ internal static class Program
         // 应用退出时清理RPC客户端
         netEaseClient.Dispose();
         tencentClient.Dispose();
+        lxMusicClient.Dispose();
     }
 
     /// <summary>
