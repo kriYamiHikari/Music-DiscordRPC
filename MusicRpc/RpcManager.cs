@@ -264,6 +264,19 @@ internal class RpcManager(
         var sanitizedArtists = playerInfo.Artists + zeroWidthSpace;
         var sanitizedAlbum = playerInfo.Album + zeroWidthSpace;
 
+        // 专辑为空时不显示文本
+        var assets = new Assets
+        {
+            LargeImageKey = playerInfo.Cover,
+            SmallImageKey = "timg",
+            SmallImageText = playerName,
+        };
+
+        if (!string.IsNullOrEmpty(playerInfo.Album))
+        {
+            assets.LargeImageText = StringUtils.GetTruncatedStringByMaxByteLength($"{albumIcon}{sanitizedAlbum}", 128);
+        }
+
         Debug.WriteLine($"cover url length:{playerInfo.Cover.Length}");
         Debug.WriteLine(
             $"pause: {playerInfo.Pause}, progress: {playerInfo.Schedule}, duration: {playerInfo.Duration}");
@@ -276,13 +289,7 @@ internal class RpcManager(
             State = StringUtils.GetTruncatedStringByMaxByteLength($"{artistIcon}{sanitizedArtists}", 128),
             StatusDisplay = config.Settings.UseDetailsForStatus ? StatusDisplayType.Details : StatusDisplayType.Name,
             Type = ActivityType.Listening,
-            Assets = new Assets
-            {
-                LargeImageKey = playerInfo.Cover,
-                LargeImageText = StringUtils.GetTruncatedStringByMaxByteLength($"{albumIcon}{sanitizedAlbum}", 128),
-                SmallImageKey = "timg",
-                SmallImageText = playerName,
-            },
+            Assets = assets,
             Buttons = buttons.ToArray()
         };
 
