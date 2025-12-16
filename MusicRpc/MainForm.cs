@@ -26,8 +26,9 @@ internal class MainForm : Form
     private readonly Label[] _progressLabels = new Label[3];
     private readonly Label[] _playerNameLabels = new Label[3];
     private Label _lastUpdateLabel = null!;
+    private Button _settingsButton = null!;
 
-    private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "LX Music"];
+    private readonly string[] _playerNames = ["网易云音乐", "QQ音乐", "洛雪音乐"];
 
     private readonly Color[] _playerColors =
     [
@@ -58,11 +59,26 @@ internal class MainForm : Form
             AutoSize = true,
             Font = new Font("Microsoft YaHei", 8),
             ForeColor = Color.Gray,
-            Location = new Point(10, 520),
+            Location = new Point(10, 490),
             Size = new Size(150, 13),
             Text = "最后更新: --:--:--"
         };
-        Controls.Add(_lastUpdateLabel);
+
+        // 创建设置按钮
+        _settingsButton = new Button
+        {
+            Text = "设置",
+            Size = new Size(75, 30),
+            Location = new Point(516, 485),
+            BackColor = Color.White,
+            ForeColor = Color.Black,
+            Font = new Font("Microsoft YaHei", 9),
+            FlatStyle = FlatStyle.Flat,
+            FlatAppearance = { BorderSize = 1 }
+        };
+        _settingsButton.Click += SettingsButton_Click;
+
+        Controls.AddRange([_lastUpdateLabel, _settingsButton]);
     }
 
     private void CreatePlayerPanel(int index)
@@ -202,7 +218,7 @@ internal class MainForm : Form
     private void SetupForm()
     {
         Text = "Music Discord RPC - 播放器状态";
-        Size = new Size(620, 550);
+        Size = new Size(620, 570);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -213,15 +229,31 @@ internal class MainForm : Form
         // 设置窗体图标
         Icon = AppResource.Icon;
 
-        // 窗体关闭时最小化到托盘而不是退出
+        // 窗体关闭时根据配置决定行为
         FormClosing += MainForm_FormClosing;
     }
 
     private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
         if (e.CloseReason != CloseReason.UserClosing) return;
-        e.Cancel = true;
-        Hide();
+
+        var config = Configurations.Instance;
+        if (config.Settings.CloseToTray)
+        {
+            e.Cancel = true;
+            Hide();
+            Program.ShowMinimizeToTrayNotification();
+        }
+        else
+        {
+            Application.Exit();
+        }
+    }
+
+    private void SettingsButton_Click(object? sender, EventArgs e)
+    {
+        using var settingsForm = new SettingsForm();
+        settingsForm.ShowDialog(this);
     }
 
     private void UpdateTimer_Tick(object? sender, EventArgs e)

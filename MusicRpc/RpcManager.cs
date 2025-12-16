@@ -332,7 +332,8 @@ internal class RpcManager(
             SmallImageText = playerName,
         };
 
-        if (!string.IsNullOrEmpty(playerInfo.Album))
+        // 根据ShowAlbumInfo配置决定是否显示专辑信息
+        if (config.Settings.ShowAlbumInfo && !string.IsNullOrEmpty(playerInfo.Album))
         {
             assets.LargeImageText = StringUtils.GetTruncatedStringByMaxByteLength($"{albumIcon}{sanitizedAlbum}", 128);
         }
@@ -346,12 +347,17 @@ internal class RpcManager(
         var presence = new RichPresence
         {
             Details = StringUtils.GetTruncatedStringByMaxByteLength($"{titleIcon}{sanitizedTitle}", 128),
-            State = StringUtils.GetTruncatedStringByMaxByteLength($"{artistIcon}{sanitizedArtists}", 128),
-            StatusDisplay = config.Settings.UseDetailsForStatus ? StatusDisplayType.Details : StatusDisplayType.Name,
+            StatusDisplay = config.Settings.StatusDisplayType,
             Type = ActivityType.Listening,
             Assets = assets,
             Buttons = buttons.ToArray()
         };
+
+        // 根据ShowArtistName配置决定是否设置State
+        if (config.Settings.ShowArtistName)
+        {
+            presence.State = StringUtils.GetTruncatedStringByMaxByteLength($"{artistIcon}{sanitizedArtists}", 128);
+        }
 
         // 根据播放状态决定是否设置时间戳
         // 暂停时切换为暂停状态图标，但由于限制时间进度依旧会自动增长

@@ -22,6 +22,11 @@ internal static class Program
     private static MainForm? _mainForm;
 
     /// <summary>
+    /// 托盘图标实例
+    /// </summary>
+    private static NotifyIcon? TrayIcon { get; set; }
+
+    /// <summary>
     /// 获取当前RpcManager实例，供其他窗体使用
     /// </summary>
     public static RpcManager? GetRpcManager() => _rpcManager;
@@ -64,13 +69,20 @@ internal static class Program
 
         // 创建并显示主窗口
         _mainForm = new MainForm();
+        
+        TrayIcon = CreateTrayIcon();
+        TrayIcon.Visible = true;
 
-        // 托盘图标
-        using var trayIcon = CreateTrayIcon();
-        trayIcon.Visible = true;
+        // 根据配置决定是否显示主窗口
+        if (!Configurations.Instance.Settings.StartInTray)
+        {
+            _mainForm.Show();
+        }
+        else
+        {
+            ShowMinimizeToTrayNotification();
+        }
 
-        // 启动时隐藏主窗口（可以通过托盘菜单显示）
-        _mainForm.Hide();
         Application.Run();
 
         // 应用退出时清理RPC客户端
@@ -84,89 +96,59 @@ internal static class Program
     /// </summary>
     private static NotifyIcon CreateTrayIcon()
     {
-        var config = Configurations.Instance;
-
-        var toggleTitleIconItem = new ToolStripMenuItem("显示歌曲标题状态图标(▶️)", null)
-            { CheckOnClick = true, Checked = config.Settings.ShowTitleIcon };
-        var toggleArtistIconItem = new ToolStripMenuItem("显示歌手图标(🎤)", null)
-            { CheckOnClick = true, Checked = config.Settings.ShowArtistIcon };
-        var toggleAlbumIconItem = new ToolStripMenuItem("显示专辑图标(💿)", null)
-            { CheckOnClick = true, Checked = config.Settings.ShowAlbumIcon };
-        var toggleStatusDisplayItem = new ToolStripMenuItem("在用户状态优先显示歌曲标题", null)
-            { CheckOnClick = true, Checked = config.Settings.UseDetailsForStatus };
-
-        var autoStartMenuItem = new ToolStripMenuItem("开机自启") { CheckOnClick = true };
+        // 其他菜单项
+        var showSettingsItem = new ToolStripMenuItem("显示设置");
+        var showMainWindowItem = new ToolStripMenuItem("显示主窗口");
         var exitMenuItem = new ToolStripMenuItem("退出");
 
-        var showMainWindowItem = new ToolStripMenuItem("显示主窗口");
+        // 创建上下文菜单
         var contextMenu = new ContextMenuStrip();
-        contextMenu.Items.Add(showMainWindowItem);
-        contextMenu.Items.Add(new ToolStripSeparator());
-        contextMenu.Items.Add(autoStartMenuItem);
-        contextMenu.Items.Add(new ToolStripSeparator());
-        contextMenu.Items.Add(toggleTitleIconItem);
-        contextMenu.Items.Add(toggleArtistIconItem);
-        contextMenu.Items.Add(toggleAlbumIconItem);
-        contextMenu.Items.Add(toggleStatusDisplayItem);
-        contextMenu.Items.Add(new ToolStripSeparator());
-        contextMenu.Items.Add(exitMenuItem);
+        contextMenu.Items.AddRange(
+            showMainWindowItem, showSettingsItem, new ToolStripSeparator(),
+            exitMenuItem);
 
-        autoStartMenuItem.Checked = Win32Api.AutoStart.Check();
-        autoStartMenuItem.Click += (_, _) =>
+        showSettingsItem.Click += (_, _) =>
         {
-            var isEnabled = autoStartMenuItem.Checked;
-            var success = Win32Api.AutoStart.Set(autoStartMenuItem.Checked);
-
-            if (success) return;
-
-            MessageBox.Show($"无法 {(isEnabled ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。",
-                "操作失败",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
-            autoStartMenuItem.Checked = !isEnabled;
+            using var settingsForm = new SettingsForm();
+            settingsForm.StartPosition = FormStartPosition.CenterScreen;
+            settingsForm.ShowDialog();
         };
 
         showMainWindowItem.Click += (_, _) =>
         {
-            if (_mainForm != null)
-            {
-                _mainForm.Show();
-                _mainForm.WindowState = FormWindowState.Normal;
-                _mainForm.Activate();
-            }
+            if (_mainForm == null) return;
+
+            _mainForm.Show();
+            _mainForm.WindowState = FormWindowState.Normal;
+            _mainForm.Activate();
         };
+
         exitMenuItem.Click += (_, _) => Application.Exit();
 
-        toggleTitleIconItem.Click += (_, _) =>
-        {
-            config.Settings.ShowTitleIcon = toggleTitleIconItem.Checked;
-            config.Save();
-            _rpcManager?.RequestStateRefresh();
-        };
-        toggleArtistIconItem.Click += (_, _) =>
-        {
-            config.Settings.ShowArtistIcon = toggleArtistIconItem.Checked;
-            config.Save();
-            _rpcManager?.RequestStateRefresh();
-        };
-        toggleAlbumIconItem.Click += (_, _) =>
-        {
-            config.Settings.ShowAlbumIcon = toggleAlbumIconItem.Checked;
-            config.Save();
-            _rpcManager?.RequestStateRefresh();
-        };
-        toggleStatusDisplayItem.Click += (_, _) =>
-        {
-            config.Settings.UseDetailsForStatus = toggleStatusDisplayItem.Checked;
-            config.Save();
-            _rpcManager?.RequestStateRefresh();
-        };
-
-        return new NotifyIcon
+        var notifyIcon = new NotifyIcon
         {
             Icon = AppResource.Icon,
             Text = "Music Discord RPC",
             ContextMenuStrip = contextMenu
         };
+
+        notifyIcon.DoubleClick += (_, _) =>
+        {
+            if (_mainForm == null) return;
+
+            _mainForm.Show();
+            _mainForm.WindowState = FormWindowState.Normal;
+            _mainForm.Activate();
+        };
+
+        return notifyIcon;
+    }
+
+    /// <summary>
+    /// 当用户关闭窗口并选择最小化到托盘时，显示通知。
+    /// </summary>
+    public static void ShowMinimizeToTrayNotification()
+    {
+        TrayIcon?.ShowBalloonTip(1000, "应用任在运行", "Music Discord RPC 已最小化到托盘区域。", ToolTipIcon.Info);
     }
 }

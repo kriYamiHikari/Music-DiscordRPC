@@ -10,7 +10,7 @@ using MusicRpc.Players.Interfaces;
 namespace MusicRpc.Players;
 
 /// <summary>
-/// 落雪音乐 (LX Music) 播放器的具体实现。
+/// 洛雪音乐 (LX Music) 播放器的具体实现。
 /// 通过播放器内置的 OpenAPI 获取播放状态，而非读取内存。
 /// </summary>
 internal sealed class LxMusic : IMusicPlayer

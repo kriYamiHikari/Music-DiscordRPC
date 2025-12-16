@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DiscordRPC;
 
 namespace MusicRpc;
 
@@ -18,7 +19,6 @@ internal class ConfigData
     /// <summary>
     /// 是否在歌曲标题前显示播放/暂停图标。
     /// </summary>
-
     public bool ShowTitleIcon { get; set; } = true;
 
     /// <summary>
@@ -34,7 +34,38 @@ internal class ConfigData
     /// <summary>
     /// 在Discord状态中，是优先显示歌曲标题 (true)，还是显示应用名称 (false)。
     /// </summary>
+    /// <remarks>为了向后兼容保留此属性，新版本建议使用 StatusDisplayType</remarks>
     public bool UseDetailsForStatus { get; set; } = true;
+
+    /// <summary>
+    /// 用户状态优先显示内容类型
+    /// </summary>
+    public StatusDisplayType StatusDisplayType { get; set; } = StatusDisplayType.Details;
+
+    /// <summary>
+    /// 程序是否开机自启
+    /// </summary>
+    public bool AutoStart { get; set; }
+
+    /// <summary>
+    /// 点击关闭窗口按钮后，是否隐藏到托盘图标
+    /// </summary>
+    public bool CloseToTray { get; set; } = true;
+
+    /// <summary>
+    /// 程序启动时是否直接隐藏到托盘运行
+    /// </summary>
+    public bool StartInTray { get; set; }
+
+    /// <summary>
+    /// 是否显示歌手名称
+    /// </summary>
+    public bool ShowArtistName { get; set; } = true;
+
+    /// <summary>
+    /// 是否显示专辑信息
+    /// </summary>
+    public bool ShowAlbumInfo { get; set; } = true;
 }
 
 /// <summary>
