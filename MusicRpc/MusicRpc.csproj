@@ -48,17 +48,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Update="AppResource.Designer.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>AppResource.resx</DependentUpon>
-    </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Update="AppResource.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>AppResource.Designer.cs</LastGenOutput>
+    <EmbeddedResource Include="Resources\icon.ico">
+      <LogicalName>MusicRpc.Resources.icon.ico</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

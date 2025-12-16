@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using DiscordRPC;
+using MusicRpc.Utils;
 
 namespace MusicRpc;
 
@@ -18,6 +19,12 @@ internal static class Program
     private const string LxMusicAppId = "1435103861089243248";
 
     private static RpcManager? _rpcManager;
+    private static MainForm? _mainForm;
+
+    /// <summary>
+    /// 获取当前RpcManager实例，供其他窗体使用
+    /// </summary>
+    public static RpcManager? GetRpcManager() => _rpcManager;
 
     /// <summary>
     /// 应用程序的主入口点方法。
@@ -55,9 +62,15 @@ internal static class Program
         _rpcManager = new RpcManager(netEaseClient, tencentClient, lxMusicClient);
         Task.Run(_rpcManager.Start);
 
+        // 创建并显示主窗口
+        _mainForm = new MainForm();
+
         // 托盘图标
         using var trayIcon = CreateTrayIcon();
         trayIcon.Visible = true;
+
+        // 启动时隐藏主窗口（可以通过托盘菜单显示）
+        _mainForm.Hide();
         Application.Run();
 
         // 应用退出时清理RPC客户端
@@ -85,7 +98,10 @@ internal static class Program
         var autoStartMenuItem = new ToolStripMenuItem("开机自启") { CheckOnClick = true };
         var exitMenuItem = new ToolStripMenuItem("退出");
 
+        var showMainWindowItem = new ToolStripMenuItem("显示主窗口");
         var contextMenu = new ContextMenuStrip();
+        contextMenu.Items.Add(showMainWindowItem);
+        contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add(autoStartMenuItem);
         contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add(toggleTitleIconItem);
@@ -108,6 +124,16 @@ internal static class Program
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             autoStartMenuItem.Checked = !isEnabled;
+        };
+
+        showMainWindowItem.Click += (_, _) =>
+        {
+            if (_mainForm != null)
+            {
+                _mainForm.Show();
+                _mainForm.WindowState = FormWindowState.Normal;
+                _mainForm.Activate();
+            }
         };
         exitMenuItem.Click += (_, _) => Application.Exit();
 
@@ -138,7 +164,7 @@ internal static class Program
 
         return new NotifyIcon
         {
-            Icon = AppResource.icon,
+            Icon = AppResource.Icon,
             Text = "Music Discord RPC",
             ContextMenuStrip = contextMenu
         };

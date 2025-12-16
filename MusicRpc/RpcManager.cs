@@ -61,6 +61,66 @@ internal class RpcManager(
     public void RequestStateRefresh() => _stateRefreshRequested = true;
 
     /// <summary>
+    /// 获取当前活跃的播放器信息
+    /// </summary>
+    /// <returns>返回当前播放器信息和播放器名称，如果没有活跃播放器则返回null</returns>
+    public (PlayerInfo? PlayerInfo, string PlayerName) GetCurrentPlayerInfo()
+    {
+        var currentTime = DateTime.UtcNow;
+
+        // 检查网易云音乐
+        if (_netEaseState is { Player: not null, LastPolledInfo: not null })
+        {
+            return (_netEaseState.LastPolledInfo, "网易云音乐");
+        }
+
+        // 检查QQ音乐
+        if (_tencentState is { Player: not null, LastPolledInfo: not null })
+        {
+            return (_tencentState.LastPolledInfo, "QQ音乐");
+        }
+
+        // 检查LX Music
+        return _lxMusicState is { Player: not null, LastPolledInfo: not null }
+            ? (_lxMusicState.LastPolledInfo, "LX Music")
+            :
+            // 没有活跃播放器
+            (null, "");
+    }
+
+    /// <summary>
+    /// 获取所有三个播放器的状态信息
+    /// </summary>
+    /// <returns>返回三个播放器的状态信息数组</returns>
+    public (PlayerInfo? PlayerInfo, string PlayerName, bool IsActive)[] GetAllPlayersStatus()
+    {
+        return
+        [
+            (
+                _netEaseState is { Player: not null, LastPolledInfo: not null }
+                    ? _netEaseState.LastPolledInfo
+                    : null,
+                "网易云音乐",
+                _netEaseState.Player != null
+            ),
+            (
+                _tencentState is { Player: not null, LastPolledInfo: not null }
+                    ? _tencentState.LastPolledInfo
+                    : null,
+                "QQ音乐",
+                _tencentState.Player != null
+            ),
+            (
+                _lxMusicState is { Player: not null, LastPolledInfo: not null }
+                    ? _lxMusicState.LastPolledInfo
+                    : null,
+                "LX Music",
+                _lxMusicState.Player != null
+            )
+        ];
+    }
+
+    /// <summary>
     /// 启动无限循环的更新线程
     /// </summary>
     public async Task Start()
