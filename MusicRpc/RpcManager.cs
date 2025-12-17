@@ -300,9 +300,9 @@ internal class RpcManager(
 
         var config = Configurations.Instance;
 
-        var titleIcon = config.Settings.ShowTitleIcon ? (playerInfo.Pause ? "⏸️ " : "▶️ ") : "";
-        var artistIcon = config.Settings.ShowArtistIcon ? "🎤 " : "";
-        var albumIcon = config.Settings.ShowAlbumIcon ? "💿 " : "";
+        // 使用优化的字符串格式化工具
+        var (formattedTitle, formattedArtists, formattedAlbum) = 
+            StringFormatter.FormatPlayerInfo(playerInfo, config);
 
         var buttons = new List<Button>();
         // Url 地址不为空的情况下才添加一起听按钮
@@ -317,13 +317,6 @@ internal class RpcManager(
             Url = "https://github.com/kriYamiHikari/Music-DiscordRPC"
         });
 
-        // 插入一个不可见零宽空格，以绕过Discord内容过滤器（是否存在存疑但有效）
-        // 例如播放`Ado - 唱`这首歌时，不做这样的处理会导致无法同步信息到Discord，无论是QQ音乐还是落雪音乐
-        const string zeroWidthSpace = "\u200B";
-        var sanitizedTitle = playerInfo.Title + zeroWidthSpace;
-        var sanitizedArtists = playerInfo.Artists + zeroWidthSpace;
-        var sanitizedAlbum = playerInfo.Album + zeroWidthSpace;
-
         // 专辑为空时不显示文本
         var assets = new Assets
         {
@@ -331,11 +324,10 @@ internal class RpcManager(
             SmallImageKey = "timg",
             SmallImageText = playerName,
         };
-
-        // 根据ShowAlbumInfo配置决定是否显示专辑信息
-        if (config.Settings.ShowAlbumInfo && !string.IsNullOrEmpty(playerInfo.Album))
+        
+        if (formattedAlbum != null)
         {
-            assets.LargeImageText = StringUtils.GetTruncatedStringByMaxByteLength($"{albumIcon}{sanitizedAlbum}", 128);
+            assets.LargeImageText = formattedAlbum;
         }
 
         Debug.WriteLine($"cover url length:{playerInfo.Cover.Length}");
@@ -346,7 +338,7 @@ internal class RpcManager(
 
         var presence = new RichPresence
         {
-            Details = StringUtils.GetTruncatedStringByMaxByteLength($"{titleIcon}{sanitizedTitle}", 128),
+            Details = formattedTitle,
             StatusDisplay = config.Settings.StatusDisplayType,
             Type = ActivityType.Listening,
             Assets = assets,
@@ -356,7 +348,7 @@ internal class RpcManager(
         // 根据ShowArtistName配置决定是否设置State
         if (config.Settings.ShowArtistName)
         {
-            presence.State = StringUtils.GetTruncatedStringByMaxByteLength($"{artistIcon}{sanitizedArtists}", 128);
+            presence.State = formattedArtists;
         }
 
         // 根据播放状态决定是否设置时间戳

@@ -259,14 +259,21 @@ internal static class ImageCacheManager
                     continue;
                 }
 
+                // 估算新图片的内存大小
+                var imageSize = MemoryPressureMonitor.EstimateImageSize(image);
+                
                 lock (LockObject)
                 {
-                    // 如果缓存已满，则执行淘汰策略
-                    if (Cache.Count >= MaxCacheSize && LruList.Last != null)
+                    while (MemoryPressureMonitor.ShouldEvictItems(imageSize) && LruList.Last != null)
                     {
                         var lruNode = LruList.Last;
-                        RemoveFromCacheInternal(lruNode.Value.Key);
-                        Debug.WriteLine($"[DIAGNOSE] Cache full. Evicted LRU item with key: {lruNode.Value.Key}");
+                        var evictedItem = lruNode.Value;
+                        var evictedSize = MemoryPressureMonitor.EstimateImageSize(evictedItem.Image);
+                        
+                        RemoveFromCacheInternal(evictedItem.Key);
+                        MemoryPressureMonitor.UnregisterImageSize(evictedSize);
+                        
+                        Debug.WriteLine($"[DIAGNOSE] Memory pressure evicted item with key: {evictedItem.Key}, freed: {evictedSize} bytes");
                     }
 
                     // 创建新的缓存项并添加到缓存
@@ -274,6 +281,11 @@ internal static class ImageCacheManager
                     var newNode = new LinkedListNode<CacheItem>(newItem);
                     LruList.AddFirst(newNode);
                     Cache[cacheKey] = newNode;
+                    
+                    // 注册新图片的内存大小
+                    MemoryPressureMonitor.RegisterImageSize(imageSize);
+                    
+                    Debug.WriteLine($"[DIAGNOSE] Cached new image with key: {cacheKey}, size: {imageSize} bytes, total cache memory: {MemoryPressureMonitor.GetCurrentMemoryUsage()} bytes");
                 }
 
                 return image;
@@ -365,6 +377,11 @@ internal static class ImageCacheManager
 
         LruList.Remove(node);
         Cache.Remove(cacheKey);
+        
+        // 从内存监控中移除图片大小
+        var imageSize = MemoryPressureMonitor.EstimateImageSize(node.Value.Image);
+        MemoryPressureMonitor.UnregisterImageSize(imageSize);
+        
         try
         {
             node.Value.Image.Dispose();

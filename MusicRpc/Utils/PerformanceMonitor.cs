@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using MusicRpc.Win32Api;
 
 namespace MusicRpc.Utils;
 
@@ -9,25 +9,7 @@ namespace MusicRpc.Utils;
 /// </summary>
 internal static class PerformanceMonitor
 {
-    [DllImport("psapi.dll")]
-    private static extern int GetProcessMemoryInfo(IntPtr hProcess, out PROCESS_MEMORY_COUNTERS counters, uint size);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PROCESS_MEMORY_COUNTERS
-    {
-        public uint cb;
-        public uint PageFaultCount;
-        public uint PeakWorkingSetSize;
-        public uint WorkingSetSize;
-        public uint QuotaPeakPagedPoolUsage;
-        public uint QuotaPagedPoolUsage;
-        public uint QuotaPeakNonPagedPoolUsage;
-        public uint QuotaNonPagedPoolUsage;
-        public uint PagefileUsage;
-        public uint PeakPagefileUsage;
-    }
-
-    private static readonly Process _currentProcess = Process.GetCurrentProcess();
+    private static readonly Process CurrentProcess = Process.GetCurrentProcess();
 
     /// <summary>
     /// 获取当前进程的内存使用情况
@@ -36,9 +18,9 @@ internal static class PerformanceMonitor
     {
         try
         {
-            var workingSet = _currentProcess.WorkingSet64;
-            var privateMemory = _currentProcess.PrivateMemorySize64;
-            var virtualMemory = _currentProcess.VirtualMemorySize64;
+            var workingSet = CurrentProcess.WorkingSet64;
+            var privateMemory = CurrentProcess.PrivateMemorySize64;
+            var virtualMemory = CurrentProcess.VirtualMemorySize64;
             var gcMemory = GC.GetTotalMemory(false);
 
             return new ProcessMemoryInfo
@@ -71,20 +53,61 @@ internal static class PerformanceMonitor
 
     private static int GetImageCacheCount()
     {
-        // 这里需要反射来访问私有字段，或者我们可以修改 ImageCacheManager 来暴露这个信息
-        // 为了简单起见，这里返回估计值
+        try
+        {
+            var imageCacheType = typeof(ImageCacheManager);
+            var cacheField = imageCacheType.GetField("Cache", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            
+            if (cacheField?.GetValue(null) is System.Collections.IDictionary cacheDict)
+            {
+                return cacheDict.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ERROR] Failed to get image cache count: {ex.Message}");
+        }
         return 0;
     }
 
     private static int GetModuleCacheCount()
     {
-        // 这里需要反射来访问私有字段
+        try
+        {
+            var memoryType = typeof(Memory);
+            var moduleCacheField = memoryType.GetField("ModuleCache", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            
+            if (moduleCacheField?.GetValue(null) is System.Collections.IDictionary cacheDict)
+            {
+                return cacheDict.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ERROR] Failed to get module cache count: {ex.Message}");
+        }
         return 0;
     }
 
     private static int GetProcessModuleCacheCount()
     {
-        // 这里需要反射来访问私有字段
+        try
+        {
+            var processUtilsType = typeof(ProcessUtils);
+            var moduleAddressCacheField = processUtilsType.GetField("ModuleAddressCache", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            
+            if (moduleAddressCacheField?.GetValue(null) is System.Collections.IDictionary cacheDict)
+            {
+                return cacheDict.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ERROR] Failed to get process module cache count: {ex.Message}");
+        }
         return 0;
     }
 
@@ -123,7 +146,7 @@ internal record ProcessMemoryInfo
 
     private static string FormatBytes(long bytes)
     {
-        string[] suffixes = { "B", "KB", "MB", "GB", "TB" };
+        string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
         var counter = 0;
         decimal number = bytes;
 
