@@ -1,7 +1,9 @@
 using System;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using DiscordRPC;
+using MusicRpc.Utils;
 using Button = System.Windows.Forms.Button;
 
 namespace MusicRpc;
@@ -44,7 +46,7 @@ internal class SettingsForm : Form
     private void InitializeComponent()
     {
         Text = "设置 - Music Discord RPC";
-        Size = new Size(450, 550);
+        Size = new Size(450, 720);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -77,6 +79,10 @@ internal class SettingsForm : Form
         // 部分状态显示组
         var partialStatusGroupBox = CreatePartialStatusGroup(ref yOffset);
         mainPanel.Controls.Add(partialStatusGroupBox);
+
+        // 性能监控组
+        var performanceGroupBox = CreatePerformanceGroup(ref yOffset);
+        mainPanel.Controls.Add(performanceGroupBox);
 
         // 按钮区域
         mainPanel.Controls.Add(CreateButtonPanelControl());
@@ -239,6 +245,54 @@ internal class SettingsForm : Form
         return groupBox;
     }
 
+    private GroupBox CreatePerformanceGroup(ref int yOffset)
+    {
+        var groupBox = new GroupBox
+        {
+            Text = "性能监控",
+            Location = new Point(10, yOffset),
+            Size = new Size(410, 150),
+            BackColor = Color.White
+        };
+
+        yOffset += 165;
+
+        // 内存使用情况标签
+        var memoryLabel = new Label
+        {
+            Text = "内存使用情况:",
+            Location = new Point(15, 25),
+            AutoSize = true,
+            BackColor = Color.White,
+            Font = new Font("Microsoft YaHei", 9, FontStyle.Bold)
+        };
+
+        // 内存信息显示
+        var memoryInfoLabel = new Label
+        {
+            Name = "memoryInfoLabel",
+            Text = "点击刷新查看当前内存使用情况",
+            Location = new Point(15, 45),
+            Size = new Size(380, 40),
+            BackColor = Color.White,
+            ForeColor = Color.Gray
+        };
+
+        // 刷新按钮
+        var refreshButton = new Button
+        {
+            Text = "刷新内存信息",
+            Location = new Point(15, 90),
+            Size = new Size(100, 25),
+            BackColor = Color.White,
+            Font = new Font("Microsoft YaHei", 8)
+        };
+        refreshButton.Click += RefreshMemoryInfo_Click;
+
+        groupBox.Controls.AddRange([memoryLabel, memoryInfoLabel, refreshButton]);
+        return groupBox;
+    }
+
     private Panel CreateButtonPanelControl()
     {
         var buttonPanel = new Panel
@@ -288,6 +342,31 @@ internal class SettingsForm : Form
         return buttonPanel;
     }
 
+    private void RefreshMemoryInfo_Click(object? sender, EventArgs e)
+    {
+        try
+        {
+            var memoryInfo = PerformanceMonitor.GetMemoryInfo();
+            var cacheStats = PerformanceMonitor.GetCacheStatistics();
+
+            if (Controls.Find("memoryInfoLabel", true).FirstOrDefault() is not Label memoryLabel) return;
+
+            memoryLabel.Text = $"""
+                                工作集: {memoryInfo.GetFormattedWorkingSet()}, 私有内存: {memoryInfo.GetFormattedPrivateMemory()}
+                                GC内存: {memoryInfo.GetFormattedGcMemory()}, 缓存项: {cacheStats.TotalCacheCount}
+                                """;
+            memoryLabel.ForeColor = Color.Black;
+        }
+        catch (Exception ex)
+        {
+            if (Controls.Find("memoryInfoLabel", true).FirstOrDefault() is Label memoryLabel)
+            {
+                memoryLabel.Text = $"获取内存信息失败: {ex.Message}";
+                memoryLabel.ForeColor = Color.Red;
+            }
+        }
+    }
+
     private void LoadSettings()
     {
         _autoStartCheckBox!.Checked = _originalSettings.AutoStart;
@@ -332,7 +411,7 @@ internal class SettingsForm : Form
 
         // 更新开机自启
         if (settings.AutoStart == _originalSettings.AutoStart) return;
-        
+
         var success = Win32Api.AutoStart.Set(settings.AutoStart);
         if (!success)
         {

@@ -4,8 +4,10 @@ using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using MusicRpc.Models;
 using MusicRpc.Players.Interfaces;
+using MusicRpc.Utils;
 
 namespace MusicRpc.Players;
 
@@ -27,7 +29,7 @@ internal sealed class LxMusic : IMusicPlayer
 
     public LxMusic(int pid)
     {
-        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        _httpClient = HttpClientManager.SharedClient;
         try
         {
             var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -67,7 +69,7 @@ internal sealed class LxMusic : IMusicPlayer
         }
     }
 
-    public PlayerInfo? GetPlayerInfo()
+    public async Task<PlayerInfo?> GetPlayerInfoAsync()
     {
         if (!_isEnabled || string.IsNullOrEmpty(_apiBaseUrl)) return null;
 
@@ -75,7 +77,7 @@ internal sealed class LxMusic : IMusicPlayer
         {
             // 请求 API 以获取所有需要的字段
             var requestUrl = $"{_apiBaseUrl}/status?filter=status,name,singer,albumName,duration,progress,picUrl";
-            var responseJson = _httpClient.GetStringAsync(requestUrl).Result;
+            var responseJson = await _httpClient.GetStringAsync(requestUrl);
             var status = JsonSerializer.Deserialize<LxMusicStatus>(responseJson);
 
             if (status is null || string.IsNullOrEmpty(status.Name)) return null;

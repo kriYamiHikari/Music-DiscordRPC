@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using MusicRpc.Utils;
 
 namespace MusicRpc.Win32Api;
 
@@ -12,6 +13,9 @@ internal static class Memory
     // 缓存模块的内存块，避免重复读取同一个模块的整个 .text 节，提升重复扫描的性能。
     private static readonly Dictionary<(int, nint), (nint pStart, byte[] memory)> ModuleCache = new();
     private static int _lastProcessId = -1;
+
+    // 最后清理时间
+    private static DateTime _lastCleanupTime = DateTime.Now;
 
     /// <summary>
     /// 在指定进程的模块中查找内存特征码 (Pattern/AOB)。
@@ -29,9 +33,18 @@ internal static class Memory
             _lastProcessId = processId;
         }
 
+        // 检查是否需要清理缓存
+        var now = DateTime.Now;
+        if ((now - _lastCleanupTime) > PerformanceConfig.ModuleCacheCleanupInterval ||
+            ModuleCache.Count > PerformanceConfig.ModuleCacheMaxSize)
+        {
+            CleanupCache();
+            _lastCleanupTime = now;
+        }
+
         if (!ModuleCache.TryGetValue((processId, moduleBaseAddress), out (nint pStart, byte[] memoryBlock) cacheEntry))
         {
-            var memory = new ProcessMemory(processId);
+            using var memory = new ProcessMemory(processId);
 
             try
             {
@@ -147,19 +160,53 @@ internal static class Memory
 
         return bytes;
     }
+
+    /// <summary>
+    /// 清理过期的缓存项，避免内存无限增长
+    /// </summary>
+    private static void CleanupCache()
+    {
+        // 如果缓存大小超过限制，清理一半最旧的项
+        if (ModuleCache.Count <= PerformanceConfig.ModuleCacheMaxSize)
+            return;
+
+        var keysToRemove = ModuleCache.Count / 2;
+        var cacheList = new List<(int, nint)>(ModuleCache.Keys);
+
+        // 按创建时间排序（这里简单按哈希值排序，实际可以根据需要改进）
+        cacheList.Sort();
+
+        for (int i = 0; i < keysToRemove && i < cacheList.Count; i++)
+        {
+            ModuleCache.Remove(cacheList[i]);
+        }
+    }
 }
 
 /// <summary>
 /// 提供对目标进程内存进行读写操作的封装类。
 /// </summary>
-internal sealed partial class ProcessMemory(nint process)
+internal sealed partial class ProcessMemory(nint process) : IDisposable
 {
+    private bool _disposed;
+
     // 这个构造函数链允许我们通过进程ID方便地创建实例。
     public ProcessMemory(int processId) : this(OpenProcess(
         0x0010, // PROCESS_VM_READ: 请求读取目标进程虚拟内存的权限
         false, // bInheritHandle: false 表示这个句柄不被子进程继承
         processId))
     {
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        if (process != IntPtr.Zero)
+        {
+            CloseHandle(process);
+        }
+
+        _disposed = true;
     }
 
     public byte[] ReadBytes(IntPtr offset, int length)
@@ -205,4 +252,8 @@ internal sealed partial class ProcessMemory(nint process)
         int dwDesiredAccess,
         [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle,
         int dwProcessId);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(IntPtr hObject);
 }

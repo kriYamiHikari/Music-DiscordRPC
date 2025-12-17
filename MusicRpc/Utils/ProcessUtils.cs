@@ -13,9 +13,12 @@ internal static class ProcessUtils
     // 键是 (进程ID, 模块名)，值是模块的基地址。
     // 性能优化用，遍历进程模块列表是一个相对耗时的操作。
     private static readonly Dictionary<(int, string), nint> ModuleAddressCache = new();
-    
+
     // 记录上一次查询的进程ID，用于智能地清空缓存。
     private static int _lastPid = -1;
+
+    // 最后清理时间
+    private static DateTime _lastCleanupTime = DateTime.Now;
 
     /// <summary>
     /// 获取指定进程中模块的基地址，利用缓存避免重复的慢速查询。
@@ -29,6 +32,15 @@ internal static class ProcessUtils
         {
             ModuleAddressCache.Clear();
             _lastPid = pid;
+        }
+
+        // 检查是否需要清理缓存
+        var now = DateTime.Now;
+        if ((now - _lastCleanupTime) > PerformanceConfig.ProcessModuleCacheCleanupInterval ||
+            ModuleAddressCache.Count > PerformanceConfig.ProcessModuleCacheMaxSize)
+        {
+            CleanupCache();
+            _lastCleanupTime = now;
         }
 
         var cacheKey = (pid, moduleName);
@@ -55,5 +67,26 @@ internal static class ProcessUtils
 
         ModuleAddressCache[cacheKey] = IntPtr.Zero;
         return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// 清理过期的缓存项，避免内存无限增长
+    /// </summary>
+    private static void CleanupCache()
+    {
+        // 如果缓存大小超过限制，清理一半最旧的项
+        if (ModuleAddressCache.Count <= PerformanceConfig.ProcessModuleCacheMaxSize)
+            return;
+
+        var keysToRemove = ModuleAddressCache.Count / 2;
+        var cacheList = new List<(int, string)>(ModuleAddressCache.Keys);
+
+        // 按进程ID排序，优先清理旧进程的缓存
+        cacheList.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+
+        for (var i = 0; i < keysToRemove && i < cacheList.Count; i++)
+        {
+            ModuleAddressCache.Remove(cacheList[i]);
+        }
     }
 }

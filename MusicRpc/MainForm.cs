@@ -1,7 +1,6 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
-using System.IO;
-using System.Net.Http;
 using System.Windows.Forms;
 using MusicRpc.Models;
 using MusicRpc.Utils;
@@ -36,6 +35,10 @@ internal class MainForm : Form
         Color.FromArgb(217, 215, 23),
         Color.FromArgb(96, 213, 105)
     ];
+
+    // 跟踪每个播放器的当前歌曲ID，用于检测歌曲切换
+    private readonly string[] _currentSongIds = new string[3];
+    private readonly string[] _currentCoverUrls = ["", "", ""];
 
     public MainForm()
     {
@@ -127,7 +130,7 @@ internal class MainForm : Form
             Padding = new Padding(0)
         };
 
-        // 创建歌曲标题标签（支持自动换行）
+        // 创建歌曲标题标签
         var songTitleLabel = new Label
         {
             AutoSize = true,
@@ -139,7 +142,7 @@ internal class MainForm : Form
             Margin = new Padding(0)
         };
 
-        // 创建艺术家标签（支持自动换行）
+        // 创建艺术家标签
         var artistLabel = new Label
         {
             AutoSize = true,
@@ -151,7 +154,7 @@ internal class MainForm : Form
             Margin = new Padding(0)
         };
 
-        // 创建专辑标签（支持自动换行）
+        // 创建专辑标签
         var albumLabel = new Label
         {
             AutoSize = true,
@@ -265,7 +268,7 @@ internal class MainForm : Form
     /// 更新显示信息
     /// </summary>
     /// <param name="forceRefresh">是否强制刷新</param>
-    public void UpdateDisplay(bool forceRefresh = false)
+    private void UpdateDisplay(bool forceRefresh = false)
     {
         try
         {
@@ -285,7 +288,6 @@ internal class MainForm : Form
         }
         catch (Exception ex)
         {
-            // 静默处理错误，避免频繁弹窗
             _lastUpdateLabel.Text = $"更新失败: {ex.Message}";
         }
     }
@@ -307,6 +309,17 @@ internal class MainForm : Form
             var album = string.IsNullOrEmpty(playerInfo.Value.Album)
                 ? ""
                 : StringUtils.GetTruncatedStringByMaxByteLength(playerInfo.Value.Album + zeroWidthSpace, 128);
+
+            // 检测歌曲是否切换
+            var currentSongId = playerInfo.Value.Identity;
+            var previousSongId = _currentSongIds[index];
+
+            // 如果歌曲ID发生变化，更新跟踪
+            if (!string.IsNullOrEmpty(currentSongId) && currentSongId != previousSongId)
+            {
+                // 更新跟踪的歌曲ID
+                _currentSongIds[index] = currentSongId;
+            }
 
             _songTitleLabels[index].Text = title;
             _artistLabels[index].Text = string.IsNullOrEmpty(artists) ? "" : $"🎤 {artists}";
@@ -337,15 +350,28 @@ internal class MainForm : Form
             // 异步加载封面
             if (!string.IsNullOrEmpty(playerInfo.Value.Cover))
             {
-                LoadCoverAsync(index, playerInfo.Value.Cover);
+                _currentCoverUrls[index] = playerInfo.Value.Cover;
+                var uniqueCacheKey = string.IsNullOrEmpty(currentSongId)
+                    ? playerInfo.Value.Cover
+                    : $"{playerInfo.Value.Cover}_{currentSongId}";
+
+                Debug.WriteLine(
+                    $"[DIAGNOSE] Updating cover for '{playerInfo.Value.Title}' (ID: {currentSongId}).");
+                Debug.WriteLine($"[DIAGNOSE]   - Cover URL: {playerInfo.Value.Cover}");
+                Debug.WriteLine($"[DIAGNOSE]   - Cache Key: {uniqueCacheKey}");
+
+                LoadCoverAsyncWithUniqueKey(index, playerInfo.Value.Cover, uniqueCacheKey);
             }
             else
             {
+                var oldImage = _coverPictureBoxes[index].Image;
                 _coverPictureBoxes[index].Image = null;
                 _coverPictureBoxes[index].BackColor = Color.LightGray;
+                if (oldImage != null)
+                {
+                }
             }
 
-            // 设置面板状态
             _playerPanels[index].BackColor = Color.White;
             _playerNameLabels[index].ForeColor = _playerColors[index];
         }
@@ -359,42 +385,69 @@ internal class MainForm : Form
             _statusLabels[index].ForeColor = Color.Gray;
             _progressBars[index].Value = 0;
             _progressLabels[index].Text = "00:00 / 00:00";
-            _coverPictureBoxes[index].Image = null;
-            _coverPictureBoxes[index].BackColor = Color.LightGray;
+
+            var pictureBox = _coverPictureBoxes[index];
+            pictureBox.Image = null;
+            pictureBox.BackColor = Color.LightGray;
 
             // 设置面板状态
             _playerPanels[index].BackColor = Color.FromArgb(248, 248, 248);
             _playerNameLabels[index].ForeColor = Color.Gray;
+
+            // 清除跟踪的歌曲ID
+            _currentSongIds[index] = string.Empty;
+            _currentCoverUrls[index] = string.Empty;
         }
     }
 
-    private async void LoadCoverAsync(int index, string coverUrl)
+    /// <summary>
+    /// 强制加载图片，使用时间戳确保缓存键唯一
+    /// </summary>
+    private async void LoadCoverAsyncWithUniqueKey(int index, string coverUrl, string forceCacheKey)
     {
         try
         {
-            using var httpClient = new HttpClient();
-            var imageBytes = await httpClient.GetByteArrayAsync(coverUrl);
+            var image = await ImageCacheManager.LoadImageAsync(forceCacheKey, coverUrl);
 
-            using var ms = new MemoryStream(imageBytes);
-            var image = Image.FromStream(ms);
-
-            if (IsHandleCreated)
+            if (IsHandleCreated && image != null)
             {
                 await InvokeAsync(() =>
                 {
-                    _coverPictureBoxes[index].Image = image;
-                    _coverPictureBoxes[index].BackColor = Color.White;
+                    // 仅当此任务加载的封面URL仍是当前期望的URL时，才更新UI
+                    if (coverUrl == _currentCoverUrls[index])
+                    {
+                        var pictureBox = _coverPictureBoxes[index];
+                        try
+                        {
+                            _ = image.RawFormat;
+                            pictureBox.Image = image;
+                            pictureBox.BackColor = Color.White;
+                        }
+                        catch (Exception ex)
+                        {
+                            pictureBox.Image = null;
+                            pictureBox.BackColor = Color.LightGray;
+                            Debug.WriteLine($"[ERROR] Invalid image detected: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[DIAGNOSE] Stale cover update ignored for URL: {coverUrl}");
+                    }
                 });
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Debug.WriteLine($"[ERROR] Failed to load cover image with timestamp: {ex.Message}");
+
             if (IsHandleCreated)
             {
                 await InvokeAsync(() =>
                 {
-                    _coverPictureBoxes[index].Image = null;
-                    _coverPictureBoxes[index].BackColor = Color.LightGray;
+                    var pictureBox = _coverPictureBoxes[index];
+                    pictureBox.Image = null;
+                    pictureBox.BackColor = Color.LightGray;
                 });
             }
         }

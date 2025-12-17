@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Text;
+using System.Threading.Tasks;
 using MusicRpc.Models;
 using MusicRpc.Players.Interfaces;
 using MusicRpc.Win32Api;
@@ -75,20 +76,20 @@ internal sealed class Tencent : IMusicPlayer
     public bool Validate(int pid)
         => _pid == pid;
 
-    public PlayerInfo? GetPlayerInfo()
+    public Task<PlayerInfo?> GetPlayerInfoAsync()
     {
         var id = GetSongIdentity();
 
         if (id == 0)
         {
-            return null;
+            return Task.FromResult<PlayerInfo?>(null);
         }
 
         // 停止也视为暂停播放
         var playStatus = GetPlayStatus();
         var isPaused = playStatus is 0 or 2;
 
-        return new PlayerInfo
+        return Task.FromResult<PlayerInfo?>(new PlayerInfo
         {
             Identity = id.ToString(),
             Title = GetSongName(),
@@ -99,7 +100,7 @@ internal sealed class Tencent : IMusicPlayer
             Duration = GetSongDuration() * 0.001,
             Pause = isPaused,
             Url = $"https://y.qq.com/n/ryqq/songDetail/{id}",
-        };
+        });
     }
 
     private uint GetSongIdentity()

@@ -66,8 +66,6 @@ internal class RpcManager(
     /// <returns>返回当前播放器信息和播放器名称，如果没有活跃播放器则返回null</returns>
     public (PlayerInfo? PlayerInfo, string PlayerName) GetCurrentPlayerInfo()
     {
-        var currentTime = DateTime.UtcNow;
-
         // 检查网易云音乐
         if (_netEaseState is { Player: not null, LastPolledInfo: not null })
         {
@@ -138,7 +136,7 @@ internal class RpcManager(
                 if (neteaseHwnd != IntPtr.Zero &&
                     Win32Api.User32.GetWindowThreadProcessId(neteaseHwnd, out var neteasePid) != 0)
                 {
-                    PollAndUpdatePlayer(_netEaseState, "NetEase CloudMusic", netEaseClient, neteasePid,
+                    await PollAndUpdatePlayer(_netEaseState, "NetEase CloudMusic", netEaseClient, neteasePid,
                         pid => new NetEase(pid), currentTime);
                 }
                 else
@@ -151,7 +149,7 @@ internal class RpcManager(
                 if (tencentHwnd != IntPtr.Zero &&
                     Win32Api.User32.GetWindowThreadProcessId(tencentHwnd, out var tencentPid) != 0)
                 {
-                    PollAndUpdatePlayer(_tencentState, "Tencent QQMusic", tencentClient, tencentPid,
+                    await PollAndUpdatePlayer(_tencentState, "Tencent QQMusic", tencentClient, tencentPid,
                         pid => new Tencent(pid), currentTime);
                 }
                 else
@@ -163,7 +161,8 @@ internal class RpcManager(
                 var lxProcess = Process.GetProcessesByName("lx-music-desktop").FirstOrDefault();
                 if (lxProcess != null)
                 {
-                    PollAndUpdatePlayer(_lxMusicState, "LX Music", lxMusicClient, lxProcess.Id, pid => new LxMusic(pid),
+                    await PollAndUpdatePlayer(_lxMusicState, "LX Music", lxMusicClient, lxProcess.Id,
+                        pid => new LxMusic(pid),
                         currentTime);
                 }
                 else
@@ -196,7 +195,8 @@ internal class RpcManager(
     /// <summary>
     /// 播放器轮询方法
     /// </summary>
-    private static void PollAndUpdatePlayer(PlayerState state, string playerName, DiscordRpcClient rpcClient, int pid,
+    private static async Task PollAndUpdatePlayer(PlayerState state, string playerName, DiscordRpcClient rpcClient,
+        int pid,
         Func<int, IMusicPlayer> playerFactory, DateTime currentTime)
     {
         if (state.Player is null)
@@ -205,7 +205,7 @@ internal class RpcManager(
             state.Player = playerFactory(pid);
         }
 
-        var currentInfo = state.Player.GetPlayerInfo();
+        var currentInfo = await state.Player.GetPlayerInfoAsync();
 
         var isStateChanged = DetectStateChange(currentInfo, state.LastPolledInfo, currentTime, state.LastPollTime,
             JumpToleranceSeconds);

@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using MusicRpc.Models;
 using MusicRpc.Players.Interfaces;
 using MusicRpc.Utils;
@@ -100,18 +101,18 @@ internal sealed class NetEase : IMusicPlayer
         }
     }
 
-    public PlayerInfo? GetPlayerInfo()
+    public Task<PlayerInfo?> GetPlayerInfoAsync()
     {
         var status = GetPlayerStatus();
         if (status == PlayStatus.Waiting)
         {
-            return null;
+            return Task.FromResult<PlayerInfo?>(null);
         }
 
         var identity = GetCurrentSongId();
         if (string.IsNullOrEmpty(identity))
         {
-            return null;
+            return Task.FromResult<PlayerInfo?>(null);
         }
 
         // 优先在 playlist (歌单列表) 中查找
@@ -120,11 +121,11 @@ internal sealed class NetEase : IMusicPlayer
         var playerInfo = UpdateAndSearchPlaylist(identity, status);
         if (playerInfo != null)
         {
-            return playerInfo;
+            return Task.FromResult(playerInfo);
         }
 
         playerInfo = UpdateAndSearchFmPlaylist(identity, status);
-        return playerInfo ?? null;
+        return Task.FromResult(playerInfo);
     }
 
     /// <summary>

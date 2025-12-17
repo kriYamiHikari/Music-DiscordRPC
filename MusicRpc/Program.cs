@@ -69,7 +69,7 @@ internal static class Program
 
         // 创建并显示主窗口
         _mainForm = new MainForm();
-        
+
         TrayIcon = CreateTrayIcon();
         TrayIcon.Visible = true;
 
@@ -85,7 +85,7 @@ internal static class Program
 
         Application.Run();
 
-        // 应用退出时清理RPC客户端
+        // 应用退出时清理资源
         netEaseClient.Dispose();
         tencentClient.Dispose();
         lxMusicClient.Dispose();
@@ -149,6 +149,6 @@ internal static class Program
     /// </summary>
     public static void ShowMinimizeToTrayNotification()
     {
-        TrayIcon?.ShowBalloonTip(1000, "应用任在运行", "Music Discord RPC 已最小化到托盘区域。", ToolTipIcon.Info);
+        TrayIcon?.ShowBalloonTip(1000, "应用仍在运行", "Music Discord RPC 已最小化到托盘区域。", ToolTipIcon.Info);
     }
 }
