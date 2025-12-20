@@ -3,9 +3,9 @@
 **将网易云音乐、QQ 音乐和洛雪音乐的播放状态实时同步到 Discord Rich Presence。**  
 Enables Discord [Rich Presence](https://discordapp.com/rich-presence) for Netease Cloud Music, Tencent QQ Music, and LX Music.
 
-<div align="center">
-  <img width="450" alt="Screenshot" src="https://github.com/user-attachments/assets/746d8a29-807e-4197-8b9a-562e14266b1e" />
-</div>
+<img width="450" alt="Screenshot" src="https://github.com/user-attachments/assets/746d8a29-807e-4197-8b9a-562e14266b1e" />
+<img width="606" height="563" alt="image" src="https://github.com/user-attachments/assets/42f56f23-2cf9-4d5b-a165-b06caa76767d" />
+<img width="466" height="693" alt="image" src="https://github.com/user-attachments/assets/f5b66ce0-59bb-4fd0-89a9-9e5e5da93994" />
 
 ---
 
