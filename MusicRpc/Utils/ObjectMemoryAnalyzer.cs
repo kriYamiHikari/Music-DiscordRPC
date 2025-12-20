@@ -197,8 +197,10 @@ internal static class ObjectMemoryAnalyzer
     /// </summary>
     public static void LogMemoryAnalysis()
     {
+#if DEBUG
         var analysis = AnalyzeManagedMemory();
         Debug.WriteLine("\n[MEMORY ANALYSIS]");
         Debug.WriteLine(analysis);
+#endif
     }
 }

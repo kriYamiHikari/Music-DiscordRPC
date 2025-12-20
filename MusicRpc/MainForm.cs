@@ -539,12 +539,9 @@ internal class MainForm : Form
         Task.Run(async () =>
         {
             await Task.Delay(2000); // 等待2秒
-            await InvokeAsync(async () =>
-            {
-                MemoryProfiler.LogMemorySnapshot("窗体加载后优化前");
-                await MemoryOptimizer.PerformAggressiveOptimizationAsync();
-                MemoryProfiler.LogMemorySnapshot("窗体加载后优化后");
-            });
+            MemoryProfiler.LogMemorySnapshot("窗体加载后优化前");
+            await MemoryOptimizer.PerformAggressiveOptimizationAsync();
+            MemoryProfiler.LogMemorySnapshot("窗体加载后优化后");
         });
     }
 

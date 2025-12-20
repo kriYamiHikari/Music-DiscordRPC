@@ -301,21 +301,31 @@ internal class RpcManager(
         var config = Configurations.Instance;
 
         // 使用优化的字符串格式化工具
-        var (formattedTitle, formattedArtists, formattedAlbum) = 
+        var (formattedTitle, formattedArtists, formattedAlbum) =
             StringFormatter.FormatPlayerInfo(playerInfo, config);
 
         var buttons = new List<Button>();
-        // Url 地址不为空的情况下才添加一起听按钮
-        if (!string.IsNullOrEmpty(playerInfo.Url))
-        {
-            buttons.Add(new Button { Label = "🎧 Listen", Url = playerInfo.Url });
-        }
 
-        buttons.Add(new Button
+        // 处理自定义按钮逻辑，严格限制在 2 个以内
+        foreach (var btnSetting in config.Settings.CustomButtons)
         {
-            Label = "🔍 View App on GitHub",
-            Url = "https://github.com/kriYamiHikari/Music-DiscordRPC"
-        });
+            if (buttons.Count >= 2) break;
+
+            var targetUrl = btnSetting.Type switch
+            {
+                RpcButtonType.MusicLink => playerInfo.Url,
+                RpcButtonType.GitHubRepo => "https://github.com/kriYamiHikari/Music-DiscordRPC",
+                RpcButtonType.Custom => btnSetting.CustomUrl,
+                _ => null
+            };
+
+            // 只有当 Label 和解析后的 Url 都不为空时才真正添加按钮
+            // 这也自动处理了洛雪音乐等 playerInfo.Url 为空的情况
+            if (!string.IsNullOrWhiteSpace(targetUrl) && !string.IsNullOrWhiteSpace(btnSetting.Label))
+            {
+                buttons.Add(new Button { Label = btnSetting.Label, Url = targetUrl });
+            }
+        }
 
         // 专辑为空时不显示文本
         var assets = new Assets
@@ -324,7 +334,7 @@ internal class RpcManager(
             SmallImageKey = "timg",
             SmallImageText = playerName,
         };
-        
+
         if (formattedAlbum != null)
         {
             assets.LargeImageText = formattedAlbum;

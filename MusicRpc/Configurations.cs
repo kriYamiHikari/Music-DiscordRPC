@@ -4,9 +4,43 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Collections.Generic;
 using DiscordRPC;
 
 namespace MusicRpc;
+
+/// <summary>
+/// RPC 按钮功能类型
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum RpcButtonType
+{
+    None, // 不显示
+    MusicLink, // 随身听（动态获取歌曲链接）
+    GitHubRepo, // 项目源码地址
+    Custom // 用户自定义链接
+}
+
+/// <summary>
+/// RPC 按钮配置项
+/// </summary>
+internal class RpcButtonSetting
+{
+    /// <summary>
+    /// 按钮功能类型
+    /// </summary>
+    public RpcButtonType Type { get; set; } = RpcButtonType.None;
+
+    /// <summary>
+    /// 按钮显示的文字
+    /// </summary>
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 自定义 URL (仅在 Type 为 Custom 时生效)
+    /// </summary>
+    public string CustomUrl { get; set; } = string.Empty;
+}
 
 /// <summary>
 /// 存储需要被序列化到JSON文件的配置项。
@@ -66,6 +100,15 @@ internal class ConfigData
     /// 是否显示专辑信息
     /// </summary>
     public bool ShowAlbumInfo { get; set; } = true;
+
+    /// <summary>
+    /// 自定义 RPC 按钮配置（严格限制在2个以内）
+    /// </summary>
+    public List<RpcButtonSetting> CustomButtons { get; set; } =
+    [
+        new RpcButtonSetting { Type = RpcButtonType.MusicLink, Label = "🎧 Listen" },
+        new RpcButtonSetting { Type = RpcButtonType.GitHubRepo, Label = "🔍 View App on GitHub" }
+    ];
 }
 
 /// <summary>
@@ -76,6 +119,7 @@ internal class Configurations
 {
     // 单例
     public static readonly Configurations Instance = new();
+
     // 缓存 JsonSerializerOptions 实例以提高性能，避免在每次保存时都重新创建。
     private static readonly JsonSerializerOptions SJsonOptions = new() { WriteIndented = true };
 

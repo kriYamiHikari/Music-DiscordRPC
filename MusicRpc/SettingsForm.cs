@@ -31,6 +31,11 @@ internal class SettingsForm : Form
     private CheckBox? _showAlbumInfoCheckBox;
     private Label? _albumTooltipLabel;
 
+    // RPC 按钮设置控件
+    private readonly ComboBox[] _buttonTypeComboBoxes = new ComboBox[2];
+    private readonly TextBox[] _buttonLabelTextBoxes = new TextBox[2];
+    private readonly TextBox[] _buttonUrlTextBoxes = new TextBox[2];
+
     // 按钮控件
     private Button? _okButton;
     private Button? _cancelButton;
@@ -46,7 +51,7 @@ internal class SettingsForm : Form
     private void InitializeComponent()
     {
         Text = "设置 - Music Discord RPC";
-        Size = new Size(450, 720);
+        Size = new Size(480, 700);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -54,8 +59,8 @@ internal class SettingsForm : Form
         ShowInTaskbar = false;
         BackColor = Color.White;
 
-        // 创建滚动面板
-        var mainPanel = new Panel
+        // 创建中间的滚动面板（填充剩余空间）
+        var scrollPanel = new Panel
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
@@ -66,28 +71,43 @@ internal class SettingsForm : Form
 
         // 程序设置组
         var programGroupBox = CreateProgramSettingsGroup(ref yOffset);
-        mainPanel.Controls.Add(programGroupBox);
+        scrollPanel.Controls.Add(programGroupBox);
 
         // RPC图标显示组
         var rpcIconGroupBox = CreateRpcIconSettingsGroup(ref yOffset);
-        mainPanel.Controls.Add(rpcIconGroupBox);
+        scrollPanel.Controls.Add(rpcIconGroupBox);
 
         // 用户状态优先显示内容组
         var statusDisplayGroupBox = CreateStatusDisplayGroup(ref yOffset);
-        mainPanel.Controls.Add(statusDisplayGroupBox);
+        scrollPanel.Controls.Add(statusDisplayGroupBox);
 
         // 部分状态显示组
         var partialStatusGroupBox = CreatePartialStatusGroup(ref yOffset);
-        mainPanel.Controls.Add(partialStatusGroupBox);
+        scrollPanel.Controls.Add(partialStatusGroupBox);
+
+        // RPC 按钮设置组
+        var rpcButtonGroupBox = CreateRpcButtonSettingsGroup(ref yOffset);
+        scrollPanel.Controls.Add(rpcButtonGroupBox);
 
         // 性能监控组
         var performanceGroupBox = CreatePerformanceGroup(ref yOffset);
-        mainPanel.Controls.Add(performanceGroupBox);
+        scrollPanel.Controls.Add(performanceGroupBox);
 
-        // 按钮区域
-        mainPanel.Controls.Add(CreateButtonPanelControl());
+        // 添加一个底部的占位符，确保滚动条能完全滚动到底部，不被底部固定按钮遮挡
+        scrollPanel.Controls.Add(new Label { Location = new Point(0, yOffset), Size = new Size(1, 60) });
 
-        Controls.Add(mainPanel);
+        // 创建并添加底部按钮面板
+        var buttonPanel = CreateButtonPanelControl();
+        Controls.Add(buttonPanel);
+
+        Controls.Add(scrollPanel);
+    }
+
+    private int GetHorizontalCenterOffset(int controlWidth)
+    {
+        // 减去滚动条的大约宽度（约 20 像素）后再计算居中
+        // 这样分组框会相对于“可见的白色区域”居中，而不是相对于整个窗口宽度居中
+        return (ClientSize.Width - 20 - controlWidth) / 2;
     }
 
     private GroupBox CreateProgramSettingsGroup(ref int yOffset)
@@ -95,12 +115,12 @@ internal class SettingsForm : Form
         var groupBox = new GroupBox
         {
             Text = "程序设置",
-            Location = new Point(10, yOffset),
+            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
             Size = new Size(410, 105),
             BackColor = Color.White
         };
 
-        yOffset += 120;
+        yOffset += 115;
 
         _autoStartCheckBox = new CheckBox
         {
@@ -135,12 +155,12 @@ internal class SettingsForm : Form
         var groupBox = new GroupBox
         {
             Text = "RPC歌曲信息图标显示",
-            Location = new Point(10, yOffset),
+            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
             Size = new Size(410, 100),
             BackColor = Color.White
         };
 
-        yOffset += 115;
+        yOffset += 110;
 
         _showTitleIconCheckBox = new CheckBox
         {
@@ -175,12 +195,12 @@ internal class SettingsForm : Form
         var groupBox = new GroupBox
         {
             Text = "用户状态优先显示内容",
-            Location = new Point(10, yOffset),
+            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
             Size = new Size(410, 80),
             BackColor = Color.White
         };
 
-        yOffset += 95;
+        yOffset += 90;
 
         var statusDisplayLabel = new Label
         {
@@ -209,12 +229,12 @@ internal class SettingsForm : Form
         var groupBox = new GroupBox
         {
             Text = "部分状态显示",
-            Location = new Point(10, yOffset),
+            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
             Size = new Size(410, 120),
             BackColor = Color.White
         };
 
-        yOffset += 135;
+        yOffset += 130;
 
         _showArtistNameCheckBox = new CheckBox
         {
@@ -245,17 +265,116 @@ internal class SettingsForm : Form
         return groupBox;
     }
 
+    private GroupBox CreateRpcButtonSettingsGroup(ref int yOffset)
+    {
+        var groupBox = new GroupBox
+        {
+            Text = "RPC 按钮设置 (最多2个)",
+            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
+            Size = new Size(410, 255), // 稍微增加高度以容纳调整后的布局
+            BackColor = Color.White
+        };
+
+        yOffset += 270; // 相应增加间距
+
+        // 添加重置按钮
+        var resetButton = new Button
+        {
+            Text = "重置为默认",
+            Location = new Point(295, 160), // 移动到第二个按钮下方，右侧对齐
+            Size = new Size(100, 25),
+            BackColor = Color.White,
+            Font = new Font(Font.FontFamily, 8.5f)
+        };
+        resetButton.Click += (_, _) =>
+        {
+            ResetButtonsToDefault();
+            MessageBox.Show("已重置按钮配置，请点击“应用”或“确定”以保存更改。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        };
+        groupBox.Controls.Add(resetButton);
+
+        for (var i = 0; i < 2; i++)
+        {
+            var startY = 25 + (i * 75);
+            var index = i;
+
+            var lblBtn = new Label { Text = $"按钮 {i + 1}:", Location = new Point(15, startY + 3), AutoSize = true };
+
+            _buttonTypeComboBoxes[i] = new ComboBox
+            {
+                Location = new Point(60, startY),
+                Size = new Size(110, 23),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            _buttonTypeComboBoxes[i].Items.AddRange(["关闭", "随身听", "GitHub", "自定义"]);
+
+            var lblText = new Label { Text = "文字:", Location = new Point(180, startY + 3), AutoSize = true };
+            _buttonLabelTextBoxes[i] = new TextBox
+            {
+                Location = new Point(220, startY),
+                Size = new Size(175, 23)
+            };
+
+            var lblUrl = new Label { Text = "链接:", Location = new Point(15, startY + 33), AutoSize = true };
+            _buttonUrlTextBoxes[i] = new TextBox
+            {
+                Location = new Point(60, startY + 30),
+                Size = new Size(335, 23)
+            };
+
+            _buttonTypeComboBoxes[i].SelectedIndexChanged += (_, _) =>
+            {
+                _buttonUrlTextBoxes[index].Enabled = _buttonTypeComboBoxes[index].SelectedIndex == 3; // Custom
+            };
+
+            groupBox.Controls.AddRange(
+            [
+                lblBtn, _buttonTypeComboBoxes[i],
+                lblText, _buttonLabelTextBoxes[i],
+                lblUrl, _buttonUrlTextBoxes[i]
+            ]);
+        }
+
+        // 添加安全免责声明
+        var lblWarning = new Label
+        {
+            Text = "⚠️ 免责声明：自定义链接由用户自行设定。请确保链接安全合规，由此产生的任何风险由用户自行承担，与软件开发者无关。",
+            Location = new Point(15, 195), // 向下移动，为重置按钮留出空间
+            Size = new Size(380, 45),
+            ForeColor = Color.Firebrick,
+            Font = new Font(Font.FontFamily, 8.5f, FontStyle.Bold)
+        };
+        groupBox.Controls.Add(lblWarning);
+
+        return groupBox;
+    }
+
+    private void ResetButtonsToDefault()
+    {
+        // 按钮 1 默认：随身听
+        _buttonTypeComboBoxes[0].SelectedIndex = (int)RpcButtonType.MusicLink;
+        _buttonLabelTextBoxes[0].Text = "🎧 Listen";
+        _buttonUrlTextBoxes[0].Text = string.Empty;
+        _buttonUrlTextBoxes[0].Enabled = false;
+
+        // 按钮 2 默认：GitHub
+        _buttonTypeComboBoxes[1].SelectedIndex = (int)RpcButtonType.GitHubRepo;
+        _buttonLabelTextBoxes[1].Text = "🔍 View App on GitHub";
+        _buttonUrlTextBoxes[1].Text = string.Empty;
+        _buttonUrlTextBoxes[1].Enabled = false;
+    }
+
     private GroupBox CreatePerformanceGroup(ref int yOffset)
     {
         var groupBox = new GroupBox
         {
             Text = "性能监控",
-            Location = new Point(10, yOffset),
+            Location = new Point(GetHorizontalCenterOffset(410), yOffset),
             Size = new Size(410, 150),
             BackColor = Color.White
         };
 
-        yOffset += 165;
+        yOffset += 160;
 
         // 内存使用情况标签
         var memoryLabel = new Label
@@ -298,15 +417,16 @@ internal class SettingsForm : Form
         var buttonPanel = new Panel
         {
             Dock = DockStyle.Bottom,
-            Size = new Size(410, 50),
-            BackColor = Color.White
+            Height = 60,
+            BackColor = Color.FromArgb(245, 245, 245), // 使用更柔和的浅灰色区分
+            Padding = new Padding(0, 5, 0, 0)
         };
 
         const int buttonWidth = 80;
         const int buttonHeight = 30;
         const int spacing = 10;
         const int totalWidth = buttonWidth * 3 + spacing * 2;
-        const int startX = (410 - totalWidth) / 2;
+        var startX = (ClientSize.Width - totalWidth) / 2;
 
         _okButton = new Button
         {
@@ -382,6 +502,16 @@ internal class SettingsForm : Form
 
         _showArtistNameCheckBox!.Checked = _originalSettings.ShowArtistName;
         _showAlbumInfoCheckBox!.Checked = _originalSettings.ShowAlbumInfo;
+
+        // 加载按钮设置
+        for (var i = 0; i < 2; i++)
+        {
+            if (i >= _originalSettings.CustomButtons.Count) continue;
+            var btn = _originalSettings.CustomButtons[i];
+            _buttonTypeComboBoxes[i].SelectedIndex = (int)btn.Type;
+            _buttonLabelTextBoxes[i].Text = btn.Label;
+            _buttonUrlTextBoxes[i].Text = btn.CustomUrl;
+        }
     }
 
     private void SaveSettings()
@@ -400,6 +530,18 @@ internal class SettingsForm : Form
 
         settings.ShowArtistName = _showArtistNameCheckBox!.Checked;
         settings.ShowAlbumInfo = _showAlbumInfoCheckBox!.Checked;
+
+        // 保存按钮设置
+        settings.CustomButtons.Clear();
+        for (var i = 0; i < 2; i++)
+        {
+            settings.CustomButtons.Add(new RpcButtonSetting
+            {
+                Type = (RpcButtonType)_buttonTypeComboBoxes[i].SelectedIndex,
+                Label = _buttonLabelTextBoxes[i].Text,
+                CustomUrl = _buttonUrlTextBoxes[i].Text
+            });
+        }
 
         // 为了向后兼容，同时更新 UseDetailsForStatus
         settings.UseDetailsForStatus = settings.StatusDisplayType == StatusDisplayType.Details;
