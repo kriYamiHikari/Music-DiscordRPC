@@ -1,5 +1,7 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MusicRpc.Utils;
 
@@ -166,20 +168,24 @@ internal static class Memory
     /// </summary>
     private static void CleanupCache()
     {
-        // 如果缓存大小超过限制，清理一半最旧的项
-        if (ModuleCache.Count <= PerformanceConfig.ModuleCacheMaxSize)
+        // 更激进的清理策略：如果缓存大小超过限制的一半就开始清理
+        if (ModuleCache.Count <= PerformanceConfig.ModuleCacheMaxSize / 2)
             return;
 
-        var keysToRemove = ModuleCache.Count / 2;
+        // 清理75%的缓存项，只保留最常用的25%
+        var keysToRemove = (int)(ModuleCache.Count * 0.75);
         var cacheList = new List<(int, nint)>(ModuleCache.Keys);
 
-        // 按创建时间排序（这里简单按哈希值排序，实际可以根据需要改进）
-        cacheList.Sort();
+        // 按进程ID排序，优先清理旧进程的缓存
+        cacheList.Sort((a, b) => a.Item1.CompareTo(b.Item1));
 
-        for (int i = 0; i < keysToRemove && i < cacheList.Count; i++)
+        for (var i = 0; i < keysToRemove && i < cacheList.Count; i++)
         {
             ModuleCache.Remove(cacheList[i]);
         }
+
+        Debug.WriteLine(
+            $"[DIAGNOSE] Memory module cache cleanup: removed {keysToRemove} items, {ModuleCache.Count} items remaining");
     }
 }
 
@@ -211,10 +217,18 @@ internal sealed partial class ProcessMemory(nint process) : IDisposable
 
     public byte[] ReadBytes(IntPtr offset, int length)
     {
-        var bytes = new byte[length];
-        ReadProcessMemory(process, offset, bytes, length, IntPtr.Zero);
-
-        return bytes;
+        var buffer = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            ReadProcessMemory(process, offset, buffer, length, IntPtr.Zero);
+            var result = new byte[length];
+            Array.Copy(buffer, 0, result, 0, length);
+            return result;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     public float ReadFloat(IntPtr address, int offset = 0)

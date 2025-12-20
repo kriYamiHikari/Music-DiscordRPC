@@ -1,7 +1,5 @@
 using System.Drawing;
-using System.IO;
 using System.Reflection;
-using System.Windows.Forms;
 
 namespace MusicRpc.Utils;
 

@@ -1,6 +1,6 @@
 using System;
-using System.Diagnostics;
 using System.Drawing;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using MusicRpc.Models;
 using MusicRpc.Utils;
@@ -40,12 +40,34 @@ internal class MainForm : Form
     private readonly string[] _currentSongIds = new string[3];
     private readonly string[] _currentCoverUrls = ["", "", ""];
 
+    // 缓存上一次的播放器状态，用于避免重复更新UI
+    private readonly PlayerInfo?[] _lastPlayerInfos = new PlayerInfo?[3];
+    private readonly bool[] _lastActiveStates = new bool[3];
+
     public MainForm()
     {
+        MemoryProfiler.LogMemorySnapshot("MainForm构造函数开始");
+
         InitializeComponent();
+        MemoryProfiler.LogMemorySnapshot("InitializeComponent后");
+
         SetupForm();
+        MemoryProfiler.LogMemorySnapshot("SetupForm后");
+
         _updateTimer = new Timer { Interval = 1000 }; // 每秒更新
         _updateTimer.Tick += UpdateTimer_Tick;
+
+        // 添加键盘事件处理
+        KeyPreview = true;
+        KeyDown += MainForm_KeyDown;
+
+        MemoryProfiler.LogMemorySnapshot("MainForm构造函数完成");
+
+        // 强制GC回收
+        MemoryProfiler.ForceGcAndLog();
+
+        // 详细分析托管内存
+        ObjectMemoryAnalyzer.LogMemoryAnalysis();
     }
 
     private void InitializeComponent()
@@ -281,7 +303,7 @@ internal class MainForm : Form
             for (var i = 0; i < 3; i++)
             {
                 var (playerInfo, playerName, isActive) = allPlayersStatus[i];
-                UpdatePlayerDisplay(i, playerInfo, playerName, isActive);
+                UpdatePlayerDisplay(i, playerInfo, playerName, isActive, forceRefresh);
             }
 
             _lastUpdateLabel.Text = $"最后更新: {DateTime.Now:HH:mm:ss}";
@@ -292,14 +314,43 @@ internal class MainForm : Form
         }
     }
 
-    private void UpdatePlayerDisplay(int index, PlayerInfo? playerInfo, string playerName, bool isActive)
+    private void UpdatePlayerDisplay(int index, PlayerInfo? playerInfo, string playerName, bool isActive,
+        bool forceRefresh)
     {
+        // 检查状态是否发生变化
+        var lastInfo = _lastPlayerInfos[index];
+        var lastActive = _lastActiveStates[index];
+
+        // 如果不是强制刷新，且活跃状态没变，且（都不活跃 或者 信息完全一致），则跳过更新
+        if (!forceRefresh && lastActive == isActive)
+        {
+            if (!isActive) return; // 都不活跃，无需更新
+
+            // 都活跃，检查关键字段是否变化
+            if (lastInfo.HasValue && playerInfo.HasValue &&
+                lastInfo.Value.Title == playerInfo.Value.Title &&
+                lastInfo.Value.Artists == playerInfo.Value.Artists &&
+                lastInfo.Value.Album == playerInfo.Value.Album &&
+                lastInfo.Value.Cover == playerInfo.Value.Cover &&
+                lastInfo.Value.Pause == playerInfo.Value.Pause &&
+                Math.Abs(lastInfo.Value.Schedule - playerInfo.Value.Schedule) < 0.5 && // 进度变化小于0.5秒忽略
+                Math.Abs(lastInfo.Value.Duration - playerInfo.Value.Duration) < 0.5) // 总时长变化小于0.5秒忽略
+            {
+                return;
+            }
+        }
+
+        // 更新缓存状态
+        _lastPlayerInfos[index] = playerInfo;
+        _lastActiveStates[index] = isActive;
+
         if (isActive && playerInfo != null)
         {
             // 播放器正在运行且有播放信息
             // 使用与RpcManager相同的字符串截断逻辑
             const string zeroWidthSpace = "\u200B";
 
+            // 只有当文本内容真正变化时才重新生成字符串（虽然这里还是会生成，但由于前面的检查，频率大大降低）
             var title = string.IsNullOrEmpty(playerInfo.Value.Title)
                 ? StringUtils.GetTruncatedStringByMaxByteLength("未知歌曲", 128)
                 : StringUtils.GetTruncatedStringByMaxByteLength(playerInfo.Value.Title + zeroWidthSpace, 128);
@@ -321,78 +372,103 @@ internal class MainForm : Form
                 _currentSongIds[index] = currentSongId;
             }
 
-            _songTitleLabels[index].Text = title;
-            _artistLabels[index].Text = string.IsNullOrEmpty(artists) ? "" : $"🎤 {artists}";
-            _albumLabels[index].Text = string.IsNullOrEmpty(album) ? "" : $"💿 {album}";
+            if (_songTitleLabels[index].Text != title) _songTitleLabels[index].Text = title;
+
+            var artistText = string.IsNullOrEmpty(artists) ? "" : $"🎤 {artists}";
+            if (_artistLabels[index].Text != artistText) _artistLabels[index].Text = artistText;
+
+            var albumText = string.IsNullOrEmpty(album) ? "" : $"💿 {album}";
+            if (_albumLabels[index].Text != albumText) _albumLabels[index].Text = albumText;
 
             // 设置状态
             var statusText = playerInfo.Value.Pause ? "⏸️ 已暂停" : "▶️ 正在播放";
             var statusColor = playerInfo.Value.Pause ? Color.Orange : Color.Green;
-            _statusLabels[index].Text = statusText;
-            _statusLabels[index].ForeColor = statusColor;
+
+            if (_statusLabels[index].Text != statusText)
+            {
+                _statusLabels[index].Text = statusText;
+                _statusLabels[index].ForeColor = statusColor;
+            }
 
             // 更新进度
             if (playerInfo.Value.Duration > 0)
             {
                 var progressPercentage = (int)((playerInfo.Value.Schedule / playerInfo.Value.Duration) * 100);
-                _progressBars[index].Value = Math.Max(0, Math.Min(100, progressPercentage));
+                var newValue = Math.Max(0, Math.Min(100, progressPercentage));
+                if (_progressBars[index].Value != newValue) _progressBars[index].Value = newValue;
 
                 var currentTime = TimeSpan.FromSeconds(playerInfo.Value.Schedule);
                 var totalTime = TimeSpan.FromSeconds(playerInfo.Value.Duration);
-                _progressLabels[index].Text = $@"{currentTime:mm\:ss} / {totalTime:mm\:ss}";
+                var progressText = $@"{currentTime:mm\:ss} / {totalTime:mm\:ss}";
+                if (_progressLabels[index].Text != progressText) _progressLabels[index].Text = progressText;
             }
             else
             {
-                _progressBars[index].Value = 0;
-                _progressLabels[index].Text = "00:00 / 00:00";
+                if (_progressBars[index].Value != 0) _progressBars[index].Value = 0;
+                if (_progressLabels[index].Text != "00:00 / 00:00") _progressLabels[index].Text = "00:00 / 00:00";
             }
 
             // 异步加载封面
             if (!string.IsNullOrEmpty(playerInfo.Value.Cover))
             {
-                _currentCoverUrls[index] = playerInfo.Value.Cover;
-                var uniqueCacheKey = string.IsNullOrEmpty(currentSongId)
-                    ? playerInfo.Value.Cover
-                    : $"{playerInfo.Value.Cover}_{currentSongId}";
+                // 只有当封面URL变化时才重新加载
+                if (_currentCoverUrls[index] != playerInfo.Value.Cover)
+                {
+                    _currentCoverUrls[index] = playerInfo.Value.Cover;
+                    var uniqueCacheKey = string.IsNullOrEmpty(currentSongId)
+                        ? playerInfo.Value.Cover
+                        : $"{playerInfo.Value.Cover}_{currentSongId}";
 
-                Debug.WriteLine(
-                    $"[DIAGNOSE] Updating cover for '{playerInfo.Value.Title}' (ID: {currentSongId}).");
-                Debug.WriteLine($"[DIAGNOSE]   - Cover URL: {playerInfo.Value.Cover}");
-                Debug.WriteLine($"[DIAGNOSE]   - Cache Key: {uniqueCacheKey}");
+                    Logger.Diagnose(
+                        $"Updating cover for '{playerInfo.Value.Title}' (ID: {currentSongId}).");
+                    Logger.Diagnose($"  - Cover URL: {playerInfo.Value.Cover}");
+                    Logger.Diagnose($"  - Cache Key: {uniqueCacheKey}");
 
-                LoadCoverAsyncWithUniqueKey(index, playerInfo.Value.Cover, uniqueCacheKey);
+                    LoadCoverAsyncWithUniqueKey(index, playerInfo.Value.Cover, uniqueCacheKey);
+                }
             }
             else
             {
-                var oldImage = _coverPictureBoxes[index].Image;
-                _coverPictureBoxes[index].Image = null;
-                _coverPictureBoxes[index].BackColor = Color.LightGray;
-                if (oldImage != null)
+                if (_coverPictureBoxes[index].Image != null)
                 {
+                    _coverPictureBoxes[index].Image = null;
+                    _coverPictureBoxes[index].BackColor = Color.LightGray;
+                    _currentCoverUrls[index] = "";
                 }
             }
 
-            _playerPanels[index].BackColor = Color.White;
-            _playerNameLabels[index].ForeColor = _playerColors[index];
+            if (_playerPanels[index].BackColor != Color.White) _playerPanels[index].BackColor = Color.White;
+            if (_playerNameLabels[index].ForeColor != _playerColors[index])
+                _playerNameLabels[index].ForeColor = _playerColors[index];
         }
         else
         {
             // 播放器未运行或无播放信息，显示占位符
-            _songTitleLabels[index].Text = StringUtils.GetTruncatedStringByMaxByteLength("播放器未运行", 128);
-            _artistLabels[index].Text = "";
-            _albumLabels[index].Text = "";
-            _statusLabels[index].Text = "未运行";
-            _statusLabels[index].ForeColor = Color.Gray;
-            _progressBars[index].Value = 0;
-            _progressLabels[index].Text = "00:00 / 00:00";
+            var defaultTitle = StringUtils.GetTruncatedStringByMaxByteLength("播放器未运行", 128);
+            if (_songTitleLabels[index].Text != defaultTitle) _songTitleLabels[index].Text = defaultTitle;
 
-            var pictureBox = _coverPictureBoxes[index];
-            pictureBox.Image = null;
-            pictureBox.BackColor = Color.LightGray;
+            if (_artistLabels[index].Text != "") _artistLabels[index].Text = "";
+            if (_albumLabels[index].Text != "") _albumLabels[index].Text = "";
+
+            if (_statusLabels[index].Text != "未运行")
+            {
+                _statusLabels[index].Text = "未运行";
+                _statusLabels[index].ForeColor = Color.Gray;
+            }
+
+            if (_progressBars[index].Value != 0) _progressBars[index].Value = 0;
+            if (_progressLabels[index].Text != "00:00 / 00:00") _progressLabels[index].Text = "00:00 / 00:00";
+
+            if (_coverPictureBoxes[index].Image != null)
+            {
+                _coverPictureBoxes[index].Image = null;
+                _coverPictureBoxes[index].BackColor = Color.LightGray;
+            }
 
             // 设置面板状态
-            _playerPanels[index].BackColor = Color.FromArgb(248, 248, 248);
-            _playerNameLabels[index].ForeColor = Color.Gray;
+            var inactiveColor = Color.FromArgb(248, 248, 248);
+            if (_playerPanels[index].BackColor != inactiveColor) _playerPanels[index].BackColor = inactiveColor;
+            if (_playerNameLabels[index].ForeColor != Color.Gray) _playerNameLabels[index].ForeColor = Color.Gray;
 
             // 清除跟踪的歌曲ID
             _currentSongIds[index] = string.Empty;
@@ -427,19 +503,19 @@ internal class MainForm : Form
                         {
                             pictureBox.Image = null;
                             pictureBox.BackColor = Color.LightGray;
-                            Debug.WriteLine($"[ERROR] Invalid image detected: {ex.Message}");
+                            Logger.Error($"Invalid image detected: {ex.Message}");
                         }
                     }
                     else
                     {
-                        Debug.WriteLine($"[DIAGNOSE] Stale cover update ignored for URL: {coverUrl}");
+                        Logger.Diagnose($"Stale cover update ignored for URL: {coverUrl}");
                     }
                 });
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[ERROR] Failed to load cover image with timestamp: {ex.Message}");
+            Logger.Error($"Failed to load cover image with timestamp: {ex.Message}");
 
             if (IsHandleCreated)
             {
@@ -458,6 +534,33 @@ internal class MainForm : Form
         base.OnLoad(e);
         _updateTimer.Start();
         UpdateDisplay(true);
+
+        // 延迟执行内存优化，确保窗体完全加载
+        Task.Run(async () =>
+        {
+            await Task.Delay(2000); // 等待2秒
+            await InvokeAsync(async () =>
+            {
+                MemoryProfiler.LogMemorySnapshot("窗体加载后优化前");
+                await MemoryOptimizer.PerformAggressiveOptimizationAsync();
+                MemoryProfiler.LogMemorySnapshot("窗体加载后优化后");
+            });
+        });
+    }
+
+    private static void MainForm_KeyDown(object? sender, KeyEventArgs e)
+    {
+        // Ctrl+R 强制清理图片缓存
+        if (e is not { Control: true, KeyCode: Keys.R }) return;
+        var beforeMemory = MemoryPressureMonitor.GetCurrentMemoryUsage();
+        ImageCacheManager.ForceCleanupCache();
+        var afterMemory = MemoryPressureMonitor.GetCurrentMemoryUsage();
+        var freedMemory = beforeMemory - afterMemory;
+
+        // 显示清理结果
+        MessageBox.Show(
+            $"缓存清理完成！\n清理前: {beforeMemory / 1024 / 1024:F1} MB\n清理后: {afterMemory / 1024 / 1024:F1} MB\n释放: {freedMemory / 1024 / 1024:F1} MB\n\n提示: 按 Ctrl+R 可随时清理缓存",
+            "缓存清理", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     protected override void Dispose(bool disposing)

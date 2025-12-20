@@ -1,6 +1,6 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
@@ -20,6 +20,9 @@ internal static class ImageCacheManager
     private static readonly LinkedList<CacheItem> LruList = [];
     private static readonly Lock LockObject = new();
 
+    // 记录已记录过日志的缓存键，避免重复刷屏
+    private static readonly HashSet<string> LoggedCacheKeys = [];
+
     /// <summary>
     /// 缓存项的内部表示。
     /// </summary>
@@ -30,31 +33,78 @@ internal static class ImageCacheManager
         public DateTime LastAccessed { get; set; } = DateTime.Now;
     }
 
-    static ImageCacheManager()
+    /// <summary>
+    /// 积极的内存清理，更频繁地检查和释放内存
+    /// </summary>
+    public static void PerformAggressiveCleanup()
     {
-        // 每5分钟执行一次清理
-        _ = new Timer(PerformCleanup, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        lock (LockObject)
+        {
+            var currentMemory = MemoryPressureMonitor.GetCurrentMemoryUsage();
+            List<string> keysToRemove;
+
+            // 如果内存使用超过30MB，执行激进清理
+            if (currentMemory > 30 * 1024 * 1024)
+            {
+                var targetCount = Math.Max(5, Cache.Count / 2); // 保留一半或至少5个
+                keysToRemove = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed)
+                    .Take(Cache.Count - targetCount)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                foreach (var key in keysToRemove)
+                {
+                    RemoveFromCacheInternal(key);
+                }
+
+                Logger.Diagnose(
+                    $"Aggressive cleanup removed {keysToRemove.Count} items. Memory before: {currentMemory / 1024 / 1024:F1}MB, after: {MemoryPressureMonitor.GetCurrentMemoryUsage() / 1024 / 1024:F1}MB");
+            }
+
+            // 如果缓存项超过15个，清理最旧的项
+            if (Cache.Count <= 15) return;
+            keysToRemove = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed)
+                .Take(Cache.Count - 15)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var key in keysToRemove)
+            {
+                RemoveFromCacheInternal(key);
+            }
+
+            Logger.Diagnose($"Cache size cleanup removed {keysToRemove.Count} items to maintain 15 items max");
+        }
     }
 
     /// <summary>
     /// 定期清理不再使用的图像资源
     /// </summary>
-    private static void PerformCleanup(object? state)
+    public static void PerformCleanup()
     {
         lock (LockObject)
         {
             var now = DateTime.Now;
-            // 清理超过15分钟未访问的缓存项
+            // 清理超过5分钟未访问的缓存项
             var keysToRemove =
-                (from kvp in Cache where (now - kvp.Value.Value.LastAccessed) > TimeSpan.FromMinutes(15) select kvp.Key)
+                (from kvp in Cache where (now - kvp.Value.Value.LastAccessed) > TimeSpan.FromMinutes(5) select kvp.Key)
                 .ToList();
 
-            // 清理超过最大缓存大小80%的旧项
-            if (Cache.Count > MaxCacheSize * 0.8)
+            // 清理超过最大缓存大小70%的旧项
+            if (Cache.Count > MaxCacheSize * 0.7)
             {
-                var excessCount = Cache.Count - (int)(MaxCacheSize * 0.6);
+                var targetCount = (int)(MaxCacheSize * 0.5); // 目标是保留50%的缓存
+                var excessCount = Cache.Count - targetCount;
                 var sortedByTime = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed).Take(excessCount);
                 keysToRemove.AddRange(sortedByTime.Select(kvp => kvp.Key));
+            }
+
+            // 如果内存使用超过50MB，额外清理最旧的缓存项
+            if (MemoryPressureMonitor.GetCurrentMemoryUsage() > 50 * 1024 * 1024)
+            {
+                var itemsToClean = Math.Min(5, Cache.Count); // 最多清理5个最旧的项
+                var oldestItems = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed).Take(itemsToClean);
+                keysToRemove.AddRange(oldestItems.Select(kvp => kvp.Key));
             }
 
             foreach (var key in keysToRemove.Distinct())
@@ -64,7 +114,7 @@ internal static class ImageCacheManager
 
             if (keysToRemove.Count > 0)
             {
-                Debug.WriteLine($"[DIAGNOSE] Cleanup removed {keysToRemove.Count} expired cache items.");
+                Logger.Diagnose($"Cleanup removed {keysToRemove.Count} expired cache items.");
             }
         }
     }
@@ -89,13 +139,13 @@ internal static class ImageCacheManager
             using var gzipStream = new GZipStream(compressedStream, CompressionMode.Decompress);
             using var resultStream = new MemoryStream();
             gzipStream.CopyTo(resultStream);
-            Debug.WriteLine(
-                $"[DIAGNOSE] Successfully decompressed GZIP data. Original size: {data.Length}, Decompressed size: {resultStream.Length}");
+            Logger.Diagnose(
+                $"Successfully decompressed GZIP data. Original size: {data.Length}, Decompressed size: {resultStream.Length}");
             return resultStream.ToArray();
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[DIAGNOSE] Failed to decompress GZIP data: {ex.Message}. Falling back to original data.");
+            Logger.Diagnose($"Failed to decompress GZIP data: {ex.Message}. Falling back to original data.");
             return data;
         }
     }
@@ -155,9 +205,8 @@ internal static class ImageCacheManager
             return null;
         }
 
-        Debug.WriteLine($"[DIAGNOSE] ImageCacheManager received request for key: {cacheKey}");
-
         Image? cachedImage = null;
+
         lock (LockObject)
         {
             if (Cache.TryGetValue(cacheKey, out var node))
@@ -167,19 +216,39 @@ internal static class ImageCacheManager
                 LruList.AddFirst(node);
                 node.Value.LastAccessed = DateTime.Now;
                 cachedImage = node.Value.Image;
-                Debug.WriteLine($"[DIAGNOSE] CACHE HIT for key: {cacheKey}");
             }
+        }
+
+        // 检查是否已经记录过该key的日志
+        var shouldLog = false;
+        lock (LoggedCacheKeys)
+        {
+            if (!LoggedCacheKeys.Contains(cacheKey))
+            {
+                shouldLog = true;
+                LoggedCacheKeys.Add(cacheKey);
+            }
+        }
+
+        if (shouldLog)
+        {
+            Logger.Diagnose($"ImageCacheManager received request for key: {cacheKey}");
         }
 
         if (cachedImage != null)
         {
+            if (shouldLog)
+            {
+                Logger.Diagnose($"CACHE HIT for key: {cacheKey}");
+            }
+
             return cachedImage;
         }
 
-        Debug.WriteLine($"[DIAGNOSE] CACHE MISS for key: {cacheKey}. Downloading from URL.");
+        Logger.Diagnose($"CACHE MISS for key: {cacheKey}. Downloading from URL.");
 
         const int maxRetries = 3;
-        byte[]? imageBytes = null;
+        byte[]? downloadedBytes = null;
 
         for (var retry = 0; retry < maxRetries; retry++)
         {
@@ -192,25 +261,57 @@ internal static class ImageCacheManager
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    Debug.WriteLine(
-                        $"[DIAGNOSE] Image download failed for key {cacheKey}: HTTP Status {response.StatusCode} (Retry {retry + 1}/{maxRetries})");
+                    Logger.Diagnose(
+                        $"Image download failed for key {cacheKey}: HTTP Status {response.StatusCode} (Retry {retry + 1}/{maxRetries})");
                     return null;
                 }
 
                 var contentType = response.Content.Headers.ContentType?.MediaType;
                 if (string.IsNullOrEmpty(contentType) || !contentType.StartsWith("image/"))
                 {
-                    Debug.WriteLine(
-                        $"[DIAGNOSE] Downloaded content is not an image for key {cacheKey}. Content-Type: {contentType ?? "N/A"} (Retry {retry + 1}/{maxRetries})");
+                    Logger.Diagnose(
+                        $"Downloaded content is not an image for key {cacheKey}. Content-Type: {contentType ?? "N/A"} (Retry {retry + 1}/{maxRetries})");
                     return null; // 内容类型明确错误，不重试
                 }
 
-                imageBytes = await response.Content.ReadAsByteArrayAsync();
-
-                if (imageBytes is not { Length: > 0 })
+                // 使用ArrayPool优化内存分配
+                await using (var httpStream = await response.Content.ReadAsStreamAsync())
                 {
-                    Debug.WriteLine(
-                        $"[DIAGNOSE] Downloaded content is empty or invalid for key: {cacheKey}. (Retry {retry + 1}/{maxRetries})");
+                    // 预估图片大小
+                    var contentLength = response.Content.Headers.ContentLength ?? 1024 * 1024; // 默认1MB
+                    var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(contentLength, 10 * 1024 * 1024)); // 最大10MB
+
+                    try
+                    {
+                        var totalRead = 0;
+                        int bytesRead;
+
+                        while ((bytesRead =
+                                   await httpStream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead))) >
+                               0)
+                        {
+                            totalRead += bytesRead;
+                            if (totalRead != buffer.Length) continue;
+                            // 缓冲区不够，需要重新分配
+                            var newBuffer = ArrayPool<byte>.Shared.Rent(buffer.Length * 2);
+                            Array.Copy(buffer, 0, newBuffer, 0, totalRead);
+                            ArrayPool<byte>.Shared.Return(buffer);
+                            buffer = newBuffer;
+                        }
+
+                        downloadedBytes = new byte[totalRead];
+                        Array.Copy(buffer, 0, downloadedBytes, 0, totalRead);
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(buffer);
+                    }
+                }
+
+                if (downloadedBytes is not { Length: > 0 })
+                {
+                    Logger.Diagnose(
+                        $"Downloaded content is empty or invalid for key: {cacheKey}. (Retry {retry + 1}/{maxRetries})");
 
                     if (retry >= maxRetries - 1) return null;
                     await Task.Delay(retryDelay);
@@ -218,24 +319,24 @@ internal static class ImageCacheManager
                 }
 
                 // 尝试解压缩GZIP数据（处理酷我音乐等返回压缩内容的情况）
-                var originalLength = imageBytes.Length;
-                imageBytes = TryDecompressGzip(imageBytes);
-                if (imageBytes.Length != originalLength)
+                var originalLength = downloadedBytes.Length;
+                var processedBytes = TryDecompressGzip(downloadedBytes);
+                if (processedBytes.Length != originalLength)
                 {
-                    Debug.WriteLine(
-                        $"[DIAGNOSE] Data was decompressed. Original: {originalLength} bytes, Decompressed: {imageBytes.Length} bytes");
+                    Logger.Diagnose(
+                        $"Data was decompressed. Original: {originalLength} bytes, Decompressed: {processedBytes.Length} bytes");
                 }
 
                 // 验证图像数据有效性
-                if (!IsValidImageData(imageBytes))
+                if (!IsValidImageData(processedBytes))
                 {
                     // 记录文件头字节以便调试
-                    var headerHex = imageBytes.Length >= 16
-                        ? BitConverter.ToString(imageBytes, 0, 16).Replace("-", " ")
-                        : BitConverter.ToString(imageBytes).Replace("-", " ");
+                    var headerHex = processedBytes.Length >= 16
+                        ? BitConverter.ToString(processedBytes, 0, 16).Replace("-", " ")
+                        : BitConverter.ToString(processedBytes).Replace("-", " ");
 
-                    Debug.WriteLine(
-                        $"[DIAGNOSE] Downloaded content is not a valid image format for key: {cacheKey}. Data length: {imageBytes.Length}. Header: {headerHex}. (Retry {retry + 1}/{maxRetries})");
+                    Logger.Diagnose(
+                        $"Downloaded content is not a valid image format for key: {cacheKey}. Data length: {processedBytes.Length}. Header: {headerHex}. (Retry {retry + 1}/{maxRetries})");
 
                     if (retry >= maxRetries - 1) return null;
                     await Task.Delay(retryDelay);
@@ -245,14 +346,14 @@ internal static class ImageCacheManager
                 Image image;
                 try
                 {
-                    var ms = new MemoryStream(imageBytes);
+                    var ms = new MemoryStream(processedBytes);
                     image = Image.FromStream(ms);
-                    Debug.WriteLine($"[DIAGNOSE] Downloaded and created new image for key: {cacheKey}. Caching it.");
+                    Logger.Diagnose($"Downloaded and created new image for key: {cacheKey}. Caching it.");
                 }
                 catch (ArgumentException ex)
                 {
-                    Debug.WriteLine(
-                        $"[DIAGNOSE] ArgumentException during Image.FromStream for key {cacheKey}. Data length: {imageBytes.Length}. Error: {ex.Message}. (Retry {retry + 1}/{maxRetries})");
+                    Logger.Diagnose(
+                        $"ArgumentException during Image.FromStream for key {cacheKey}. Data length: {processedBytes.Length}. Error: {ex.Message}. (Retry {retry + 1}/{maxRetries})");
 
                     if (retry >= maxRetries - 1) return null;
                     await Task.Delay(retryDelay);
@@ -261,19 +362,41 @@ internal static class ImageCacheManager
 
                 // 估算新图片的内存大小
                 var imageSize = MemoryPressureMonitor.EstimateImageSize(image);
-                
+
                 lock (LockObject)
                 {
+                    // 主动清理：检查是否需要预先清理一些缓存项
+                    if (MemoryPressureMonitor.ShouldProactivelyCleanup())
+                    {
+                        var cleanupCount = MemoryPressureMonitor.GetSuggestedCleanupCount();
+                        var itemsToCleanup = Math.Min(cleanupCount, LruList.Count);
+
+                        for (var i = 0; i < itemsToCleanup && LruList.Last != null; i++)
+                        {
+                            var lruNode = LruList.Last;
+                            var evictedItem = lruNode.Value;
+                            var evictedSize = MemoryPressureMonitor.EstimateImageSize(evictedItem.Image);
+
+                            RemoveFromCacheInternal(evictedItem.Key);
+                            MemoryPressureMonitor.UnregisterImageSize(evictedSize);
+
+                            Logger.Diagnose(
+                                $"Proactive cleanup evicted item with key: {evictedItem.Key}, freed: {evictedSize} bytes");
+                        }
+                    }
+
+                    // 内存压力清理：确保有足够空间存放新图片
                     while (MemoryPressureMonitor.ShouldEvictItems(imageSize) && LruList.Last != null)
                     {
                         var lruNode = LruList.Last;
                         var evictedItem = lruNode.Value;
                         var evictedSize = MemoryPressureMonitor.EstimateImageSize(evictedItem.Image);
-                        
+
                         RemoveFromCacheInternal(evictedItem.Key);
                         MemoryPressureMonitor.UnregisterImageSize(evictedSize);
-                        
-                        Debug.WriteLine($"[DIAGNOSE] Memory pressure evicted item with key: {evictedItem.Key}, freed: {evictedSize} bytes");
+
+                        Logger.Diagnose(
+                            $"Memory pressure evicted item with key: {evictedItem.Key}, freed: {evictedSize} bytes");
                     }
 
                     // 创建新的缓存项并添加到缓存
@@ -281,20 +404,21 @@ internal static class ImageCacheManager
                     var newNode = new LinkedListNode<CacheItem>(newItem);
                     LruList.AddFirst(newNode);
                     Cache[cacheKey] = newNode;
-                    
+
                     // 注册新图片的内存大小
                     MemoryPressureMonitor.RegisterImageSize(imageSize);
-                    
-                    Debug.WriteLine($"[DIAGNOSE] Cached new image with key: {cacheKey}, size: {imageSize} bytes, total cache memory: {MemoryPressureMonitor.GetCurrentMemoryUsage()} bytes");
+
+                    Logger.Diagnose(
+                        $"Cached new image with key: {cacheKey}, size: {imageSize} bytes, total cache memory: {MemoryPressureMonitor.GetCurrentMemoryUsage()} bytes");
                 }
 
                 return image;
             }
             catch (ArgumentException ex)
             {
-                var dataLength = imageBytes?.Length.ToString() ?? "N/A";
-                Debug.WriteLine(
-                    $"[DIAGNOSE] ArgumentException during image creation for key {cacheKey}. Image data length: {dataLength}. Error: {ex.Message}. Attempt {retry + 1}/{maxRetries}.");
+                var dataLength = downloadedBytes?.Length.ToString() ?? "N/A";
+                Logger.Diagnose(
+                    $"ArgumentException during image creation for key {cacheKey}. Image data length: {dataLength}. Error: {ex.Message}. Attempt {retry + 1}/{maxRetries}.");
                 if (retry < maxRetries - 1)
                 {
                     await Task.Delay(retryDelay);
@@ -302,15 +426,14 @@ internal static class ImageCacheManager
             }
             catch (Exception ex)
             {
-                var dataLength = imageBytes?.Length.ToString() ?? "N/A";
-                Debug.WriteLine(
-                    $"[DIAGNOSE] General Exception during image download/creation for key {cacheKey}. Image data length: {dataLength}. Error: {ex.Message}.");
+                var dataLength = downloadedBytes?.Length.ToString() ?? "N/A";
+                Logger.Diagnose(
+                    $"General Exception during image download/creation for key {cacheKey}. Image data length: {dataLength}. Error: {ex.Message}.");
                 return null;
             }
         }
 
-        Debug.WriteLine(
-            $"[DIAGNOSE] Failed to download and create image for key {cacheKey} after {maxRetries} attempts.");
+        Logger.Diagnose($"Failed to download and create image for key {cacheKey} after {maxRetries} attempts.");
         return null;
     }
 
@@ -327,7 +450,40 @@ internal static class ImageCacheManager
                 RemoveFromCacheInternal(key);
             }
 
-            Debug.WriteLine("[DIAGNOSE] All caches have been cleared.");
+            // 清理日志记录，允许下次重新记录
+            lock (LoggedCacheKeys)
+            {
+                LoggedCacheKeys.Clear();
+            }
+
+            Logger.Diagnose("[DIAGNOSE] All caches have been cleared.");
+        }
+    }
+
+    /// <summary>
+    /// 强制清理缓存以释放内存，保留最近使用的指定数量的图片
+    /// </summary>
+    /// <param name="keepCount">要保留的最近图片数量，默认为10</param>
+    public static void ForceCleanupCache(int keepCount = 10)
+    {
+        lock (LockObject)
+        {
+            if (Cache.Count <= keepCount) return;
+
+            var itemsToRemove = Cache.Count - keepCount;
+            var keysToRemove = new List<string>();
+
+            // 获取最旧的缓存项（除了最近使用的keepCount个）
+            var sortedByTime = Cache.OrderBy(kvp => kvp.Value.Value.LastAccessed).Take(itemsToRemove);
+            keysToRemove.AddRange(sortedByTime.Select(kvp => kvp.Key));
+
+            foreach (var key in keysToRemove)
+            {
+                RemoveFromCacheInternal(key);
+            }
+
+            Logger.Diagnose(
+                $"Force cleanup removed {keysToRemove.Count} cache items, kept {keepCount} most recent items.");
         }
     }
 
@@ -362,7 +518,7 @@ internal static class ImageCacheManager
                 RemoveFromCacheInternal(key);
             }
 
-            Debug.WriteLine($"[DIAGNOSE] Removed {keysToRemove.Count} cache items with prefix '{prefix}'.");
+            Logger.Diagnose($"Removed {keysToRemove.Count} cache items with prefix '{prefix}'.");
         }
     }
 
@@ -377,18 +533,24 @@ internal static class ImageCacheManager
 
         LruList.Remove(node);
         Cache.Remove(cacheKey);
-        
+
+        // 从已记录日志的集合中移除，以便下次重新加载时可以再次记录
+        lock (LoggedCacheKeys)
+        {
+            LoggedCacheKeys.Remove(cacheKey);
+        }
+
         // 从内存监控中移除图片大小
         var imageSize = MemoryPressureMonitor.EstimateImageSize(node.Value.Image);
         MemoryPressureMonitor.UnregisterImageSize(imageSize);
-        
+
         try
         {
             node.Value.Image.Dispose();
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[WARNING] Failed to dispose image for key {cacheKey}: {ex.Message}");
+            Logger.Diagnose($"[WARNING] Failed to dispose image for key {cacheKey}: {ex.Message}");
         }
     }
 }

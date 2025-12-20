@@ -74,11 +74,12 @@ internal static class ProcessUtils
     /// </summary>
     private static void CleanupCache()
     {
-        // 如果缓存大小超过限制，清理一半最旧的项
-        if (ModuleAddressCache.Count <= PerformanceConfig.ProcessModuleCacheMaxSize)
+        // 更激进的清理策略：如果缓存大小超过限制的一半就开始清理
+        if (ModuleAddressCache.Count <= PerformanceConfig.ProcessModuleCacheMaxSize / 2)
             return;
 
-        var keysToRemove = ModuleAddressCache.Count / 2;
+        // 清理70%的缓存项，只保留最常用的30%
+        var keysToRemove = (int)(ModuleAddressCache.Count * 0.7);
         var cacheList = new List<(int, string)>(ModuleAddressCache.Keys);
 
         // 按进程ID排序，优先清理旧进程的缓存
@@ -88,5 +89,8 @@ internal static class ProcessUtils
         {
             ModuleAddressCache.Remove(cacheList[i]);
         }
+
+        Debug.WriteLine(
+            $"[DIAGNOSE] Process module cache cleanup: removed {keysToRemove} items, {ModuleAddressCache.Count} items remaining");
     }
 }
