@@ -489,7 +489,13 @@ internal class SettingsForm : Form
 
     private void LoadSettings()
     {
-        _autoStartCheckBox!.Checked = _originalSettings.AutoStart;
+        // 优先以注册表实际状态为准初始化开机自启 CheckBox
+        var isAutoStartEnabled = Win32Api.AutoStart.Check();
+        _autoStartCheckBox!.Checked = isAutoStartEnabled;
+        
+        // 同步配置中的值，确保一致性
+        _originalSettings.AutoStart = isAutoStartEnabled;
+
         _closeToTrayCheckBox!.Checked = _originalSettings.CloseToTray;
         _startInTrayCheckBox!.Checked = _originalSettings.StartInTray;
 
@@ -517,8 +523,9 @@ internal class SettingsForm : Form
     private void SaveSettings()
     {
         var settings = Configurations.Instance.Settings;
+        var isAutoStartChecked = _autoStartCheckBox!.Checked;
 
-        settings.AutoStart = _autoStartCheckBox!.Checked;
+        settings.AutoStart = isAutoStartChecked;
         settings.CloseToTray = _closeToTrayCheckBox!.Checked;
         settings.StartInTray = _startInTrayCheckBox!.Checked;
 
@@ -551,14 +558,13 @@ internal class SettingsForm : Form
         // 请求RPC刷新
         Program.GetRpcManager()?.RequestStateRefresh();
 
-        // 更新开机自启
-        if (settings.AutoStart == _originalSettings.AutoStart) return;
-
-        var success = Win32Api.AutoStart.Set(settings.AutoStart);
+        // 更新开机自启：直接对比 CheckBox 状态与注册表实际状态
+        if (isAutoStartChecked == Win32Api.AutoStart.Check()) return;
+        var success = Win32Api.AutoStart.Set(isAutoStartChecked);
         if (!success)
         {
             MessageBox.Show(
-                $"无法 {(settings.AutoStart ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。",
+                $"无法 {(isAutoStartChecked ? "设置" : "取消")} 开机自启。\n请尝试以管理员权限运行本程序一次。",
                 "操作失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }

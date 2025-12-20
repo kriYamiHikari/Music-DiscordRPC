@@ -27,6 +27,9 @@ internal static class AutoStart
             return false;
         }
 
+        // 为路径添加引号以处理包含空格的路径
+        var quotedPath = $"\"{exePath}\"";
+
         using var runKey = OpenRunKey(true);
         if (runKey is null) return false;
 
@@ -34,9 +37,10 @@ internal static class AutoStart
         {
             if (enable)
             {
-                if (runKey.GetValue(AppValueName) as string != exePath)
+                var currentVal = runKey.GetValue(AppValueName) as string;
+                if (currentVal != quotedPath)
                 {
-                    runKey.SetValue(AppValueName, exePath);
+                    runKey.SetValue(AppValueName, quotedPath);
                 }
             }
             else
@@ -71,7 +75,11 @@ internal static class AutoStart
         try
         {
             var storedPath = runKey.GetValue(AppValueName) as string;
-            return !string.IsNullOrEmpty(storedPath) && exePath.Equals(storedPath, StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(storedPath)) return false;
+
+            // 移除引号后进行路径比较
+            var normalizedStoredPath = storedPath.Trim('\"');
+            return exePath.Equals(normalizedStoredPath, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception e)
         {
