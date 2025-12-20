@@ -64,10 +64,12 @@ internal static class ObjectMemoryAnalyzer
             {
                 try
                 {
-                    // 尝试获取程序集文件大小作为近似值
+#if DEBUG
+                    // 仅在 DEBUG 模式下尝试获取路径，避免 Release 发布时的单文件兼容性错误 (IL3000)
                     if (string.IsNullOrEmpty(assembly.Location)) continue;
                     var fileInfo = new FileInfo(assembly.Location);
                     totalAssemblySize += fileInfo.Length;
+#endif
                 }
                 catch
                 {

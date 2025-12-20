@@ -55,10 +55,13 @@ internal static class MemoryProfiler
         {
             try
             {
+#if DEBUG
+                // 仅在 DEBUG 模式下尝试获取路径，避免 Release 发布时的单文件兼容性错误 (IL3000)
                 if (string.IsNullOrEmpty(assembly.Location)) continue;
                 var fileInfo = new System.IO.FileInfo(assembly.Location);
                 var name = assembly.GetName().Name;
                 if (name != null) assemblySizes[name] = fileInfo.Length;
+#endif
             }
             catch (Exception ex)
             {
