@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 
@@ -11,13 +12,17 @@ internal static class HttpClientManager
 {
     private static readonly Lazy<HttpClient> SharedClientLazy = new(() =>
     {
-        var client = new HttpClient
+        var handler = new HttpClientHandler
+        {
+            // 启用自动解压，HttpClient 会自动处理 gzip 和 deflate
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+        };
+
+        var client = new HttpClient(handler)
         {
             Timeout = PerformanceConfig.HttpClientTimeout,
         };
 
-        // 启用压缩
-        client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate");
         return client;
     }, LazyThreadSafetyMode.ExecutionAndPublication);
 

@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using MusicRpc.Models;
@@ -39,6 +40,7 @@ internal class MainForm : Form
     // 跟踪每个播放器的当前歌曲ID，用于检测歌曲切换
     private readonly string[] _currentSongIds = new string[3];
     private readonly string[] _currentCoverUrls = ["", "", ""];
+    private readonly string[] _currentCacheKeys = ["", "", ""];
 
     // 缓存上一次的播放器状态，用于避免重复更新UI
     private readonly PlayerInfo?[] _lastPlayerInfos = new PlayerInfo?[3];
@@ -306,6 +308,9 @@ internal class MainForm : Form
                 UpdatePlayerDisplay(i, playerInfo, playerName, isActive, forceRefresh);
             }
 
+            // 更新图片缓存管理器的活跃键，防止正在显示的图片被释放
+            ImageCacheManager.SetActiveKeys(_currentCacheKeys.Where(k => !string.IsNullOrEmpty(k)));
+
             _lastUpdateLabel.Text = $"最后更新: {DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex)
@@ -411,13 +416,17 @@ internal class MainForm : Form
             // 异步加载封面
             if (!string.IsNullOrEmpty(playerInfo.Value.Cover))
             {
+                var uniqueCacheKey = string.IsNullOrEmpty(currentSongId)
+                    ? playerInfo.Value.Cover
+                    : $"{playerInfo.Value.Cover}_{currentSongId}";
+
+                // 更新当前活跃的缓存键
+                _currentCacheKeys[index] = uniqueCacheKey;
+
                 // 只有当封面URL变化时才重新加载
                 if (_currentCoverUrls[index] != playerInfo.Value.Cover)
                 {
                     _currentCoverUrls[index] = playerInfo.Value.Cover;
-                    var uniqueCacheKey = string.IsNullOrEmpty(currentSongId)
-                        ? playerInfo.Value.Cover
-                        : $"{playerInfo.Value.Cover}_{currentSongId}";
 
                     Logger.Diagnose(
                         $"Updating cover for '{playerInfo.Value.Title}' (ID: {currentSongId}).");
@@ -429,6 +438,7 @@ internal class MainForm : Form
             }
             else
             {
+                _currentCacheKeys[index] = "";
                 if (_coverPictureBoxes[index].Image != null)
                 {
                     _coverPictureBoxes[index].Image = null;
@@ -473,6 +483,7 @@ internal class MainForm : Form
             // 清除跟踪的歌曲ID
             _currentSongIds[index] = string.Empty;
             _currentCoverUrls[index] = string.Empty;
+            _currentCacheKeys[index] = string.Empty;
         }
     }
 

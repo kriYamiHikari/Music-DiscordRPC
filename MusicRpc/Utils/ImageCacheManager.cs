@@ -3,7 +3,6 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +19,9 @@ internal static class ImageCacheManager
     private static readonly LinkedList<CacheItem> LruList = [];
     private static readonly Lock LockObject = new();
 
+    // 记录当前正在 UI 中显示的图片键，防止被清理释放
+    private static readonly HashSet<string> ActiveKeys = [];
+
     // 记录已记录过日志的缓存键，避免重复刷屏
     private static readonly HashSet<string> LoggedCacheKeys = [];
 
@@ -31,6 +33,24 @@ internal static class ImageCacheManager
         public string Key { get; } = key;
         public Image Image { get; } = image;
         public DateTime LastAccessed { get; set; } = DateTime.Now;
+    }
+
+    /// <summary>
+    /// 设置当前活跃的图片键列表，这些图片将不会被清理释放
+    /// </summary>
+    public static void SetActiveKeys(IEnumerable<string> keys)
+    {
+        lock (LockObject)
+        {
+            ActiveKeys.Clear();
+            foreach (var key in keys)
+            {
+                if (!string.IsNullOrEmpty(key))
+                {
+                    ActiveKeys.Add(key);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -116,37 +136,6 @@ internal static class ImageCacheManager
             {
                 Logger.Diagnose($"Cleanup removed {keysToRemove.Count} expired cache items.");
             }
-        }
-    }
-
-    /// <summary>
-    /// 尝试解压缩GZIP数据，如果数据不是GZIP格式则返回原始数据
-    /// </summary>
-    /// <param name="data">可能被压缩的数据</param>
-    /// <returns>解压缩后的数据或原始数据</returns>
-    private static byte[] TryDecompressGzip(byte[] data)
-    {
-        if (data.Length < 2)
-        {
-            return [];
-        }
-
-        // 检查是否是GZIP格式 (1F 8B)
-        if (data[0] != 0x1F || data[1] != 0x8B) return data;
-        try
-        {
-            using var compressedStream = new MemoryStream(data);
-            using var gzipStream = new GZipStream(compressedStream, CompressionMode.Decompress);
-            using var resultStream = new MemoryStream();
-            gzipStream.CopyTo(resultStream);
-            Logger.Diagnose(
-                $"Successfully decompressed GZIP data. Original size: {data.Length}, Decompressed size: {resultStream.Length}");
-            return resultStream.ToArray();
-        }
-        catch (Exception ex)
-        {
-            Logger.Diagnose($"Failed to decompress GZIP data: {ex.Message}. Falling back to original data.");
-            return data;
         }
     }
 
@@ -318,25 +307,16 @@ internal static class ImageCacheManager
                     continue;
                 }
 
-                // 尝试解压缩GZIP数据（处理酷我音乐等返回压缩内容的情况）
-                var originalLength = downloadedBytes.Length;
-                var processedBytes = TryDecompressGzip(downloadedBytes);
-                if (processedBytes.Length != originalLength)
-                {
-                    Logger.Diagnose(
-                        $"Data was decompressed. Original: {originalLength} bytes, Decompressed: {processedBytes.Length} bytes");
-                }
-
                 // 验证图像数据有效性
-                if (!IsValidImageData(processedBytes))
+                if (!IsValidImageData(downloadedBytes))
                 {
                     // 记录文件头字节以便调试
-                    var headerHex = processedBytes.Length >= 16
-                        ? BitConverter.ToString(processedBytes, 0, 16).Replace("-", " ")
-                        : BitConverter.ToString(processedBytes).Replace("-", " ");
+                    var headerHex = downloadedBytes.Length >= 16
+                        ? BitConverter.ToString(downloadedBytes, 0, 16).Replace("-", " ")
+                        : BitConverter.ToString(downloadedBytes).Replace("-", " ");
 
                     Logger.Diagnose(
-                        $"Downloaded content is not a valid image format for key: {cacheKey}. Data length: {processedBytes.Length}. Header: {headerHex}. (Retry {retry + 1}/{maxRetries})");
+                        $"Downloaded content is not a valid image format for key: {cacheKey}. Data length: {downloadedBytes.Length}. Header: {headerHex}. (Retry {retry + 1}/{maxRetries})");
 
                     if (retry >= maxRetries - 1) return null;
                     await Task.Delay(retryDelay);
@@ -346,14 +326,14 @@ internal static class ImageCacheManager
                 Image image;
                 try
                 {
-                    var ms = new MemoryStream(processedBytes);
+                    var ms = new MemoryStream(downloadedBytes);
                     image = Image.FromStream(ms);
                     Logger.Diagnose($"Downloaded and created new image for key: {cacheKey}. Caching it.");
                 }
                 catch (ArgumentException ex)
                 {
                     Logger.Diagnose(
-                        $"ArgumentException during Image.FromStream for key {cacheKey}. Data length: {processedBytes.Length}. Error: {ex.Message}. (Retry {retry + 1}/{maxRetries})");
+                        $"ArgumentException during Image.FromStream for key {cacheKey}. Data length: {downloadedBytes.Length}. Error: {ex.Message}. (Retry {retry + 1}/{maxRetries})");
 
                     if (retry >= maxRetries - 1) return null;
                     await Task.Delay(retryDelay);
@@ -530,6 +510,12 @@ internal static class ImageCacheManager
     private static void RemoveFromCacheInternal(string cacheKey)
     {
         if (!Cache.TryGetValue(cacheKey, out var node)) return;
+
+        // 检查是否是当前正在使用的图片，如果是则跳过清理，防止 UI 崩溃
+        if (ActiveKeys.Contains(cacheKey))
+        {
+            return;
+        }
 
         LruList.Remove(node);
         Cache.Remove(cacheKey);
