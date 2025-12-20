@@ -306,7 +306,7 @@ internal class SettingsForm : Form
                 Size = new Size(110, 23),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
-            _buttonTypeComboBoxes[i].Items.AddRange(["关闭", "随身听", "GitHub", "自定义"]);
+            _buttonTypeComboBoxes[i].Items.AddRange(["关闭", "随身听", "项目 Github", "自定义"]);
 
             var lblText = new Label { Text = "文字:", Location = new Point(180, startY + 3), AutoSize = true };
             _buttonLabelTextBoxes[i] = new TextBox
