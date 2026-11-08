@@ -14,7 +14,7 @@ namespace MusicRpc.Players;
 internal sealed class Tencent : IMusicPlayer
 {
     /*
-       版本 20.43 结构
+       QQMusic 22.61 结构（32 位进程）
        struct CurrentSongInfo {
            std::string m_szSong; // 0x0
            std::string m_szArtist; // 0x18
@@ -36,8 +36,11 @@ internal sealed class Tencent : IMusicPlayer
     // dword_xxxxx+0x14 = 15;
     // 这个是初始化 std::string, 我们要找的是第一个，这个是当前播放的歌的名字
     // 3. 选中然后在汇编页面生成Pattern
+    // 从字符串的 capacity 初始化开始匹配，利用连续字段上下文减少短序列误匹配。
     private const string CurrentSongInfoPattern
-        = "A2 ? ? ? ? A3 ? ? ? ? C7 05 ? ? ? ? ? ? ? ? A2 ? ? ? ? A3 ? ? ? ? C7 05 ? ? ? ? ? ? ? ? A2 ? ? ? ? A3";
+        = "C7 05 ? ? ? ? 0F 00 00 00 A2 ? ? ? ? A3 ? ? ? ? C7 05 ? ? ? ? 0F 00 00 00 A2 ? ? ? ? A3";
+
+    private const int CurrentSongInfoPointerOffset = 11;
 
     private const int StdStringSize = 0x18;
 
@@ -62,8 +65,8 @@ internal sealed class Tencent : IMusicPlayer
 
         if (Memory.FindPattern(CurrentSongInfoPattern, pid, moduleBaseAddress, out var patternAddress))
         {
-            var songInfoPointer = _process.ReadInt32(patternAddress, 1);
-            _currentSongInfoAddress = songInfoPointer;
+            var songInfoPointer = _process.ReadUInt32(patternAddress, CurrentSongInfoPointerOffset);
+            _currentSongInfoAddress = (nint)songInfoPointer;
         }
 
         if (_currentSongInfoAddress == 0)
@@ -128,7 +131,8 @@ internal sealed class Tencent : IMusicPlayer
     {
         var strLength = _process.ReadInt32(address, 0x10);
 
-        if (strLength == 0)
+        // 切歌时字符串可能正处于析构/重建阶段，避免把损坏的长度当作进程地址或超大读取。
+        if (strLength is <= 0 or > 1024 * 1024)
         {
             return string.Empty;
         } // small string optimization
@@ -142,8 +146,14 @@ internal sealed class Tencent : IMusicPlayer
         }
         else
         {
-            var strAddress = _process.ReadInt32(address);
-            strBuffer = _process.ReadBytes(strAddress, strLength);
+            var strAddress = _process.ReadUInt32(address);
+
+            if (strAddress == 0)
+            {
+                return string.Empty;
+            }
+
+            strBuffer = _process.ReadBytes((nint)strAddress, strLength);
         }
 
         return Encoding.UTF8.GetString(strBuffer);
