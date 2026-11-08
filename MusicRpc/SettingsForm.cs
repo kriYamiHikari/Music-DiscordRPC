@@ -19,6 +19,7 @@ internal class SettingsForm : Form
     private CheckBox? _autoStartCheckBox;
     private CheckBox? _closeToTrayCheckBox;
     private CheckBox? _startInTrayCheckBox;
+    private CheckBox? _hideRpcWhenPausedCheckBox;
 
     // RPC图标显示控件
     private CheckBox? _showTitleIconCheckBox;
@@ -116,11 +117,11 @@ internal class SettingsForm : Form
         {
             Text = "程序设置",
             Location = new Point(GetHorizontalCenterOffset(410), yOffset),
-            Size = new Size(410, 105),
+            Size = new Size(410, 130),
             BackColor = Color.White
         };
 
-        yOffset += 115;
+        yOffset += 140;
 
         _autoStartCheckBox = new CheckBox
         {
@@ -146,7 +147,18 @@ internal class SettingsForm : Form
             BackColor = Color.White
         };
 
-        groupBox.Controls.AddRange([_autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox]);
+        _hideRpcWhenPausedCheckBox = new CheckBox
+        {
+            Text = "歌曲暂停期间不显示 RPC",
+            Location = new Point(15, 100),
+            AutoSize = true,
+            BackColor = Color.White
+        };
+
+        groupBox.Controls.AddRange(
+        [
+            _autoStartCheckBox, _closeToTrayCheckBox, _startInTrayCheckBox, _hideRpcWhenPausedCheckBox
+        ]);
         return groupBox;
     }
 
@@ -498,6 +510,7 @@ internal class SettingsForm : Form
 
         _closeToTrayCheckBox!.Checked = _originalSettings.CloseToTray;
         _startInTrayCheckBox!.Checked = _originalSettings.StartInTray;
+        _hideRpcWhenPausedCheckBox!.Checked = _originalSettings.HideRpcWhenPaused;
 
         _showTitleIconCheckBox!.Checked = _originalSettings.ShowTitleIcon;
         _showArtistIconCheckBox!.Checked = _originalSettings.ShowArtistIcon;
@@ -528,6 +541,7 @@ internal class SettingsForm : Form
         settings.AutoStart = isAutoStartChecked;
         settings.CloseToTray = _closeToTrayCheckBox!.Checked;
         settings.StartInTray = _startInTrayCheckBox!.Checked;
+        settings.HideRpcWhenPaused = _hideRpcWhenPausedCheckBox!.Checked;
 
         settings.ShowTitleIcon = _showTitleIconCheckBox!.Checked;
         settings.ShowArtistIcon = _showArtistIconCheckBox!.Checked;

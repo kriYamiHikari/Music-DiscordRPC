@@ -300,6 +300,12 @@ internal class RpcManager(
 
         var config = Configurations.Instance;
 
+        if (config.Settings.HideRpcWhenPaused && playerInfo.Pause)
+        {
+            rpcClient.ClearPresence();
+            return;
+        }
+
         // 使用优化的字符串格式化工具
         var (formattedTitle, formattedArtists, formattedAlbum) =
             StringFormatter.FormatPlayerInfo(playerInfo, config);

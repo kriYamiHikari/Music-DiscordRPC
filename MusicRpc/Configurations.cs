@@ -92,6 +92,11 @@ internal class ConfigData
     public bool StartInTray { get; set; }
 
     /// <summary>
+    /// 歌曲暂停期间是否隐藏 Discord RPC
+    /// </summary>
+    public bool HideRpcWhenPaused { get; set; }
+
+    /// <summary>
     /// 是否显示歌手名称
     /// </summary>
     public bool ShowArtistName { get; set; } = true;
